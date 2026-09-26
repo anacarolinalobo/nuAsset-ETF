@@ -42,7 +42,10 @@ python scripts/run_backtest.py
 #    pode levar vários minutos — 1 backtest por combinação da grade)
 python scripts/run_train_test_split.py
 
-# 4) testes unitários
+# 4) fatores de mercado via PCA e desempenho do momentum por regime
+python scripts/run_pca_regime_analysis.py
+
+# 5) testes unitários
 pytest -q
 ```
 
@@ -50,7 +53,9 @@ Saídas em `output/`: `dashboard.html` (relatório visual), `summary_metrics.csv
 `daily_returns.csv`, `turnover_history.csv`, `attribution.csv`,
 `sensitivity_lookback.csv`, `sensitivity_cost.csv`. Saídas de
 `scripts/run_train_test_split.py` em `output/train_test_split/`:
-`grid_treino_teste.csv`, `resumo.csv`.
+`grid_treino_teste.csv`, `resumo.csv`. Saídas de
+`scripts/run_pca_regime_analysis.py` em `output/pca_regimes/`:
+`variancia_explicada.csv`, `desempenho_por_regime.csv`, `exposicao_fatores.csv`.
 
 ## Estrutura do código
 
@@ -69,12 +74,14 @@ src/
   metrics.py               métricas de desempenho
   attribution.py           atribuição de performance vs. Ibovespa
   sensitivity.py           sensibilidade a parâmetros / estabilidade temporal
+  market_factors.py        fatores de mercado via PCA e momentum por regime
   capacity.py              estimativa de capacidade do produto
   report.py                dashboard HTML autocontido
 scripts/
-  run_backtest.py          orquestra tudo, ponta a ponta
-  run_train_test_split.py  validação treino/teste da grade de parâmetros
-  make_sample_data.py      gera dados sintéticos (smoke test apenas)
+  run_backtest.py             orquestra tudo, ponta a ponta
+  run_train_test_split.py     validação treino/teste da grade de parâmetros
+  run_pca_regime_analysis.py  fatores de mercado via PCA e momentum por regime
+  make_sample_data.py         gera dados sintéticos (smoke test apenas)
 tests/                     testes unitários (pytest) com dados sintéticos pequenos
 ```
 
@@ -258,7 +265,57 @@ share e atribuição de performance (`src/attribution.py`).
    case. Rode `python scripts/run_train_test_split.py` para reproduzir com
    os CSVs reais.
 
-## 4. Capacidade do produto
+## 4. Fatores de mercado via PCA e desempenho do momentum por regime
+
+`src/market_factors.py` (script dedicado `scripts/run_pca_regime_analysis.py`)
+responde à pergunta "em que ambiente de mercado o momentum brasileiro
+funciona ou falha?" sem depender de classificação setorial ou de um índice
+de "regime" externo (nenhum dos dois está na base fornecida):
+
+1. **Padronização**: cada ação tem seu retorno diário padronizado (z-score
+   pela própria média/desvio-padrão histórico) — remove a diferença de nível
+   de volatilidade entre papéis antes do PCA, senão os componentes seriam
+   dominados pelas ações mais voláteis, não pelas mais co-movidas.
+2. **PCA (via SVD)** sobre o painel padronizado extrai fatores
+   **estatísticos** de mercado: o 1º componente (PC1) tende a se aproximar
+   de um fator de mercado amplo (a maioria das ações brasileiras se move
+   junto na maior parte do tempo); componentes de ordem mais alta capturam
+   rotações/estilos residuais, sem rótulo econômico automático — o módulo
+   reporta a fração de ações com carga positiva no PC1 como checagem de
+   sanidade dessa leitura.
+3. **Regimes**: cada dia é classificado em tercil (baixo/médio/alto) de
+   cada fator, usando os cortes da amostra inteira.
+4. **Desempenho condicional**: Sharpe, retorno anualizado e hit rate do
+   índice de momentum são recalculados dentro de cada tercil de cada fator
+   — mostra se o momentum concentra o resultado em regimes específicos (ex.:
+   tercil "alto" do PC1, se este for de fato o fator de mercado amplo) ou é
+   estável através deles.
+5. **Exposição aos fatores**: regressão OLS do retorno diário do índice nos
+   fatores dá o beta a cada um e o R² conjunto — um R² baixo indica que o
+   resultado do momentum vem majoritariamente do timing/seleção de nomes
+   (idiossincrático à estratégia), não de estar simplesmente "comprado" nos
+   fatores estatísticos de mercado.
+
+**Por que PCA em vez de rótulos de regime pré-definidos (ex.: "bull/bear"
+por threshold do Ibovespa):** não pressupõe de antemão qual variável define
+o regime — deixa a estrutura de covariância das próprias ações revelar os
+eixos de variação comum, e é a abordagem que sobra quando não há dado
+setorial/fundamental para construir fatores explícitos (Fama-French-like).
+
+**Limitação declarada**: o PCA é ajustado na amostra inteira (não de forma
+expansível/rolling) porque esta é uma análise diagnóstica/post-hoc — não
+realimenta a construção da carteira, então não há look-ahead relevante para
+a integridade do backtest em si. Usar isso como sinal de regime **ao vivo**
+exigiria reajustar o PCA de forma expansível, só com dado até cada data,
+como já é feito em `signal.py`/`universe.py`. Com os dados sintéticos deste
+ambiente (que não têm um fator de mercado comum de verdade, por
+construção — ver aviso no topo) a variância explicada fica espalhada quase
+igualmente entre os componentes e o PC1 não passa na checagem de sanidade
+(carga positiva em bem menos que 100% das ações); com os CSVs reais, espera-se
+um PC1 dominante e amplamente positivo, típico de bolsas concentradas em
+poucos setores como a brasileira.
+
+## 5. Capacidade do produto
 
 `src/capacity.py` implementa a fórmula de capacidade
 (`ADTV × participação_máxima × dias / peso`), mas **não é calculada** no
