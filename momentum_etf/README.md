@@ -38,13 +38,19 @@ python scripts/make_sample_data.py
 # 2) com os CSVs reais em data/ (substituindo os sintéticos, se gerados)
 python scripts/run_backtest.py
 
-# 3) testes unitários
+# 3) validação treino/teste da grade de parâmetros (checagem de overfitting,
+#    pode levar vários minutos — 1 backtest por combinação da grade)
+python scripts/run_train_test_split.py
+
+# 4) testes unitários
 pytest -q
 ```
 
 Saídas em `output/`: `dashboard.html` (relatório visual), `summary_metrics.csv`,
 `daily_returns.csv`, `turnover_history.csv`, `attribution.csv`,
-`sensitivity_lookback.csv`, `sensitivity_cost.csv`.
+`sensitivity_lookback.csv`, `sensitivity_cost.csv`. Saídas de
+`scripts/run_train_test_split.py` em `output/train_test_split/`:
+`grid_treino_teste.csv`, `resumo.csv`.
 
 ## Estrutura do código
 
@@ -67,6 +73,7 @@ src/
   report.py                dashboard HTML autocontido
 scripts/
   run_backtest.py          orquestra tudo, ponta a ponta
+  run_train_test_split.py  validação treino/teste da grade de parâmetros
   make_sample_data.py      gera dados sintéticos (smoke test apenas)
 tests/                     testes unitários (pytest) com dados sintéticos pequenos
 ```
@@ -220,22 +227,36 @@ share e atribuição de performance (`src/attribution.py`).
 
 ## 3. Análise de sensibilidade e robustez
 
-`src/sensitivity.py` oferece duas checagens, chamadas em
-`scripts/run_backtest.py`:
+`src/sensitivity.py` oferece três checagens:
 
-1. **Grade de parâmetros**: reroda o backtest variando lookback e custo de
+1. **Grade de parâmetros** (`parameter_grid_sensitivity`, chamada em
+   `scripts/run_backtest.py`): reroda o backtest variando lookback e custo de
    transação, um de cada vez, comparando Sharpe/retorno. Se o resultado for
    muito sensível a uma escolha de calibração fina (ex.: 252 vs. 315 dias
    de lookback), é sinal de overfitting ao histórico específico.
-2. **Estabilidade em janelas sucessivas**: divide o backtest em 4
+2. **Estabilidade em janelas sucessivas** (`expanding_window_stability`,
+   chamada em `scripts/run_backtest.py`): divide o backtest em 4
    subperíodos e compara Sharpe/retorno entre eles, para checar se o
    desempenho é consistente ao longo do tempo ou concentrado em uma janela
    específica.
-
-Não implementado nesta entrega (documentado como prioridade cortada por
-tempo, não por falta de importância): um teste out-of-sample formal com
-otimização de hiperparâmetros apenas na primeira metade da amostra e
-validação cega na segunda.
+3. **Busca em grade com validação treino/teste**
+   (`train_test_grid_search`, script dedicado
+   `scripts/run_train_test_split.py`): otimiza `lookback_days`,
+   `entry_percentile` e `rebalance_freq` **ao mesmo tempo** na primeira
+   metade da amostra (treino) e mede, **sem reotimizar**, o Sharpe da
+   combinação vencedora na segunda metade (teste) — comparando contra o
+   Sharpe do modelo DEFAULT (nunca ajustado) no mesmo teste. Isso responde
+   a uma pergunta que a checagem (1) não responde sozinha: mesmo que nenhum
+   parâmetro isolado pareça "frágil", a *combinação* escolhida pela grade
+   pode ainda estar ajustada a ruído específico do treino — só um teste
+   cego fora da amostra revela isso. Com os dados sintéticos deste
+   ambiente, o modelo "otimizado" pela grade **não bate** o default fora da
+   amostra (Sharpe de teste menor, apesar do Sharpe de treino mais alto) —
+   evidência de que a grade capturou ruído do treino, não um padrão
+   robusto, e reforça manter os parâmetros default (fixados por
+   julgamento/literatura, não por busca) ao rodar contra os dados reais do
+   case. Rode `python scripts/run_train_test_split.py` para reproduzir com
+   os CSVs reais.
 
 ## 4. Capacidade do produto
 
@@ -255,7 +276,6 @@ que disponível, sem mudar a interface.
   para uma atribuição Brinson completa): não buscadas por falta de acesso
   a dados de mercado neste ambiente — não por decisão metodológica.
 - Estimativa de capacidade real (depende de volume).
-- Teste out-of-sample formal com otimização cega.
 - Dashboard interativo (Streamlit): optou-se por HTML estático
   autocontido, mais simples de entregar e abrir sem servidor rodando;
   trade-off é a ausência de filtros interativos por período.
