@@ -118,12 +118,14 @@ src/
   metrics.py               métricas de desempenho
   attribution.py           atribuição de performance vs. Ibovespa
   sensitivity.py           sensibilidade a parâmetros / estabilidade temporal
+  train_test_split.py      split formal treino/validação, otimização cega
   capacity.py              estimativa de capacidade do produto
   pca_analysis.py          PCA sobre risco da carteira e sobre classes de ativos
   report.py                dashboard HTML autocontido
 scripts/
   build_market_data.py     parseia COTAHIST + FRE, gera ADTV/market cap/mapeamento
   run_backtest.py          orquestra tudo, ponta a ponta, gera dashboard.html estático
+  run_train_test_split.py  split treino/validação formal (ver seção 3 da metodologia)
   make_sample_data.py      gera dados sintéticos (smoke test apenas)
 app.py                     dashboard interativo (Streamlit) -- parâmetros ajustáveis
 tests/                     testes unitários (pytest) com dados sintéticos pequenos
@@ -337,10 +339,24 @@ share e atribuição de performance (`src/attribution.py`).
    desempenho é consistente ao longo do tempo ou concentrado em uma janela
    específica.
 
-Não implementado nesta entrega (documentado como prioridade cortada por
-tempo, não por falta de importância): um teste out-of-sample formal com
-otimização de hiperparâmetros apenas na primeira metade da amostra e
-validação cega na segunda.
+3. **Split formal treino/validação** (`src/train_test_split.py`,
+   `scripts/run_train_test_split.py`): divide o período de backtest ao
+   meio por número de pregões, varre uma grade de hiperparâmetros
+   (`lookback_days`, `entry_percentile`, `rebalance_freq` — só escolhas
+   de metodologia, nunca a premissa de custo de transação) **só no
+   treino**, escolhendo a combinação de maior Sharpe ali. Roda essa MESMA
+   combinação, sem reotimizar nada, no período de teste, e compara contra
+   a configuração default (nunca ajustada a dado nenhum) no mesmo teste —
+   se o "otimizado" não bate o default fora da amostra, é evidência de
+   que a grade capturou ruído do treino, não sinal robusto, e a
+   recomendação correta seria usar o default. Roda com:
+   ```bash
+   python scripts/run_train_test_split.py
+   ```
+   Saída em `output/train_test_split/`: `grid_results.csv` (toda a grade,
+   ordenada) e `optimized_vs_baseline.csv` (comparação lado a lado no
+   teste). 18 combinações na grade default × 1 backtest cada + 2 finais —
+   roda bem mais devagar que `run_backtest.py`.
 
 ## 4. Capacidade do produto
 
@@ -364,11 +380,6 @@ que disponível, sem mudar a interface.
 - Classificação setorial para uma atribuição Brinson completa (a
   atribuição implementada é por contribuição de ativo, não por setor) —
   não buscada por falta de acesso a dados de mercado neste ambiente.
-- Estimativa de capacidade real: a fórmula em `src/capacity.py` já aceita
-  a ADTV de `src/cotahist.py` diretamente, mas não está plugada em
-  `run_backtest.py` nesta entrega — próximo passo natural, não uma
-  limitação de dado (a ADTV real já existe no pipeline agora).
-- Teste out-of-sample formal com otimização cega.
 - Apresentação de slides e leitura de produto (papel no portfólio, taxa de
   administração, tamanho de posição): são entregáveis separados do código,
   não cobertos por este pacote Python.
