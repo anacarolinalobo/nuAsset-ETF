@@ -2,11 +2,10 @@ __pycache__/
 *.pyc
 .pytest_cache/
 
-# dados reais do case (não versionar) e dados sintéticos de smoke test
-data/*.csv
+# Arquivos brutos de origem (B3/CVM) — grandes, e já resumidos em data/derived/
+# (COTAHIST anual costuma passar de 50-100MB; o GitHub bloqueia >100MB por arquivo).
 data/cotahist/
 data/fre_cia_aberta_*/
-data/derived/
 
 # saídas geradas pelo backtest
 output/*
