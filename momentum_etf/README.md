@@ -22,29 +22,45 @@ alternativas de mercado. Por isso:
   devem ser usados para avaliar a estratégia. Rode
   `python scripts/run_backtest.py` novamente depois de colocar os CSVs
   reais em `data/` para obter os resultados de verdade.
-- Nenhuma fonte externa foi incorporada à análise (não usei nenhum dado
-  complementar de B3, CVM, ou provedores de mercado) — é uma limitação
-  desta entrega, não uma escolha metodológica, e está listada abaixo em
-  "O que ficou de fora".
+- **Fontes externas usadas**: dados de liquidez (volume financeiro
+  negociado) e tamanho (valor de mercado) via arquivos públicos da B3
+  (COTAHIST) e da CVM (Formulário de Referência — capital social), lidos
+  pelos módulos `src/cotahist.py`, `src/fre_capital_social.py` e
+  `src/market_cap.py`. Também não estavam anexados a esta sessão — o
+  código está pronto contra o layout real desses arquivos (validado
+  manualmente no `caseNuAsset.ipynb` original), mas não rodou contra dado
+  de verdade aqui. Ver seção "Filtro de liquidez e tamanho" abaixo.
 
 ## Como rodar
 
 ```bash
 pip install -r requirements.txt
 
-# 1) smoke test com dados sintéticos (opcional, só para validar o pipeline)
+# 1) smoke test com dados sintéticos (opcional, só para validar o pipeline
+#    de ponta a ponta, incluindo o filtro de liquidez/market cap)
 python scripts/make_sample_data.py
+python scripts/build_market_data.py   # gera ADTV e market cap sintéticos
 
-# 2) com os CSVs reais em data/ (substituindo os sintéticos, se gerados)
+# 2) com os dados reais em data/ (substituindo os sintéticos, se gerados):
+#    - acoes_retornos.csv, ibov_composicao.csv, benchmarks_diarios.csv
+#    - data/cotahist/COTAHIST_A{ano}.TXT (2008-2026)
+#    - data/fre_cia_aberta_{ano}/fre_cia_aberta_capital_social_{ano}.csv (2010-2026)
+python scripts/build_market_data.py   # opcional; sem isso, cai no proxy antigo
 python scripts/run_backtest.py
 
 # 3) testes unitários
 pytest -q
 ```
 
+`build_market_data.py` é opcional: se `data/derived/adtv.csv` e
+`market_cap.csv` não existirem, `run_backtest.py` roda igual, só que com
+o filtro de liquidez de fallback (presença de retorno, sem dado externo).
+
 Saídas em `output/`: `dashboard.html` (relatório visual), `summary_metrics.csv`,
 `daily_returns.csv`, `turnover_history.csv`, `attribution.csv`,
 `sensitivity_lookback.csv`, `sensitivity_cost.csv`.
+Em `data/derived/`: `ticker_cnpj_mapping.csv` (revisar antes de confiar —
+ver seção de limitações), `adtv.csv`, `market_cap.csv`.
 
 ## Estrutura do código
 
@@ -52,7 +68,11 @@ Saídas em `output/`: `dashboard.html` (relatório visual), `summary_metrics.csv
 src/
   config.py            parâmetros da metodologia, centralizados
   data_loader.py        carga e limpeza dos 3 CSVs; checagem de dado suspeito
-  universe.py            universo elegível (entrada/saída, sem look-ahead)
+  cotahist.py             parser dos arquivos de pregão B3 (preço + volume)
+  fre_capital_social.py   ações em circulação (Formulário de Referência CVM)
+  company_mapping.py      matching ticker <-> CNPJ via nome (fuzzy)
+  market_cap.py            combina preço x ações em circulação = valor de mercado
+  universe.py            universo elegível: liquidez/tamanho ANTES do momentum
   signal.py               sinal de momentum (12-1, ajustado a risco, z-score)
   selection.py            seleção com banda de turnover (buffer rule)
   weighting.py            ponderação por score, com teto por ativo
@@ -66,6 +86,7 @@ src/
   capacity.py              estimativa de capacidade do produto
   report.py                dashboard HTML autocontido
 scripts/
+  build_market_data.py     parseia COTAHIST + FRE, gera ADTV/market cap/mapeamento
   run_backtest.py          orquestra tudo, ponta a ponta
   make_sample_data.py      gera dados sintéticos (smoke test apenas)
 tests/                     testes unitários (pytest) com dados sintéticos pequenos
@@ -81,27 +102,74 @@ critério de ponderação não exige tocar em `selection.py` nem em
 
 ### Universo elegível
 
-Ação entra no universo elegível em uma data de rebalanceamento se, **usando
-apenas dados até aquela data**:
+A elegibilidade roda em **dois estágios**, sempre usando apenas dados
+disponíveis até a própria data de cálculo:
+
+**Estágio 1 — filtro de liquidez e tamanho** (`src/universe.py::_liquidity_size_filter`),
+aplicado **antes de qualquer coisa relacionada a momentum** — ser
+"negociável em tamanho razoável" precisa ser uma pergunta independente de
+"teve bom desempenho recente", senão o índice fica enviesado a comprar
+justamente os papéis ilíquidos que mais dispararam por pouca profundidade
+de book, o caso clássico de resultado de backtest bonito e impossível de
+implementar:
+
+1. **ADTV** (volume financeiro médio negociado, janela móvel de
+   `liquidity_lookback_days` = 63 pregões, calculada a partir do COTAHIST
+   em `src/cotahist.py::compute_adtv`) — exclui o terço menos líquido da
+   seção transversal do dia (`adtv_min_percentile` = 0.30).
+2. **Valor de mercado** (preço de fechamento real × ações em circulação,
+   `src/market_cap.py`) — exclui o quinto menor em tamanho
+   (`market_cap_min_percentile` = 0.20).
+
+Os cortes são por **percentil da seção transversal do dia**, não valor
+absoluto em R$: um piso nominal fixo perderia sentido ao longo de
+2010-2026 (inflação, crescimento do mercado) e teria que ser recalibrado
+a cada ano; o corte relativo se mantém comparável no tempo. Um piso
+absoluto opcional (`min_adtv_reais`, `min_market_cap_reais`) pode ser
+somado por cima quando fizer sentido (ex.: garantir um mínimo de R$
+negociado por dia que qualquer AUM-alvo do fundo precisaria conseguir
+executar), mas fica desligado por padrão.
+
+Quando ADTV/market cap não estão disponíveis (dado externo ausente, ou
+ticker sem par confiável na base de CNPJ — ver "Limitações do
+mapeamento" abaixo), o estágio 1 não penaliza o papel: ele segue para o
+estágio 2 avaliado só pelo proxy interno, para que ausência de dado
+externo nunca vire exclusão silenciosa.
+
+**Estágio 2 — histórico e proxy de atividade** (`_history_filter`, a
+lógica já existente antes desta mudança), roda sobre o que sobrou do
+estágio 1:
 
 1. Tem pelo menos `lookback_days + skip_days` (padrão: 273) pregões de
-   histórico — para que o sinal de 12 meses esteja plenamente formado (sem
-   isso o sinal seria calculado sobre uma janela incompleta, distorcendo o
-   score).
+   histórico — para que o sinal de 12 meses esteja plenamente formado.
 2. Ainda está "viva": teve ao menos um retorno observado nos últimos
    `liquidity_window_days` (126) pregões — se não, presume-se deslistada.
-3. Passa em um proxy de liquidez: fração de pregões com retorno observado
-   na mesma janela >= `min_active_ratio` (90%).
+3. Proxy de liquidez interno (fração de pregões com retorno observado
+   >= `min_active_ratio`, 90%) — continua ativo mesmo com ADTV real
+   disponível, como uma segunda rede de segurança contra dado de preço
+   sem negócio de fato por trás (ver `data_loader.flag_suspicious_returns`).
 
 A ação sai do universo automaticamente quando seu histórico de retorno
-acaba (sem regra explícita de remoção — a ausência de dado já resolve
-isso) ou quando deixa de passar no filtro de liquidez.
+acaba, quando deixa de passar no filtro de liquidez/tamanho, ou quando
+cai abaixo do proxy de atividade.
 
 **Por que isso evita survivorship bias:** como `acoes_retornos.csv` inclui
 ações que saíram de negociação até o último dia em que negociaram, o
 universo em cada data histórica é calculado exatamente como teria sido
 calculado *naquele momento* — nada é removido retroativamente por "ter
 morrido depois".
+
+**Limitações do mapeamento ticker↔CNPJ** (`src/company_mapping.py`): não
+existe chave exata em comum entre COTAHIST (ticker + nome truncado em 12
+caracteres) e o FRE/CVM (CNPJ + nome oficial completo) — o matching é por
+similaridade de nome normalizado (fuzzy), com um limiar mínimo de
+confiança. Nomes truncados colidem com frequência entre empresas do
+mesmo grupo econômico ou entre diferentes classes de ação da mesma
+controladora. `scripts/build_market_data.py` exporta
+`data/derived/ticker_cnpj_mapping.csv` com a pontuação de similaridade de
+cada match para revisão manual — este entregável NÃO valida esse
+mapeamento linha a linha contra uma fonte de verdade (seria o próximo
+passo antes de usar o filtro em produção).
 
 ### Definição do sinal de momentum
 
@@ -249,12 +317,20 @@ que disponível, sem mudar a interface.
 
 ## O que ficou de fora (priorização declarada)
 
-- Dados reais: não roda contra os CSVs do case porque eles não estavam
-  disponíveis nesta sessão (ver aviso no topo).
-- Fontes externas complementares (ex.: volume B3, classificação setorial
-  para uma atribuição Brinson completa): não buscadas por falta de acesso
-  a dados de mercado neste ambiente — não por decisão metodológica.
-- Estimativa de capacidade real (depende de volume).
+- Dados reais: não roda contra os CSVs do case nem contra COTAHIST/FRE de
+  verdade porque nenhum deles estava disponível nesta sessão (ver aviso
+  no topo) — todo o código de liquidez/market cap foi validado só com
+  dados sintéticos gerados por `scripts/make_sample_data.py`.
+- Validação manual do mapeamento ticker↔CNPJ (`ticker_cnpj_mapping.csv`):
+  o matching é fuzzy e fica exportado para revisão, mas essa revisão
+  linha a linha não foi feita aqui — ver "Limitações do mapeamento" acima.
+- Classificação setorial para uma atribuição Brinson completa (a
+  atribuição implementada é por contribuição de ativo, não por setor) —
+  não buscada por falta de acesso a dados de mercado neste ambiente.
+- Estimativa de capacidade real: a fórmula em `src/capacity.py` já aceita
+  a ADTV de `src/cotahist.py` diretamente, mas não está plugada em
+  `run_backtest.py` nesta entrega — próximo passo natural, não uma
+  limitação de dado (a ADTV real já existe no pipeline agora).
 - Teste out-of-sample formal com otimização cega.
 - Dashboard interativo (Streamlit): optou-se por HTML estático
   autocontido, mais simples de entregar e abrir sem servidor rodando;
