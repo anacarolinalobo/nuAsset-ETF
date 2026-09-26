@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+.venv/
 
 # dados reais do case (não versionar) e dados sintéticos de smoke test
 data/*.csv
