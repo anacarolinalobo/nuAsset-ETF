@@ -92,6 +92,26 @@ def _normalize_colname(name: str) -> str:
     return replacements.get(key, replacements.get(name, name.replace(" ", "_")))
 
 
+def _mask_to_flag_rows(returns_wide: pd.DataFrame, mask: pd.DataFrame, tipo: str) -> list[dict]:
+    """Extrai (date, ticker, retorno) onde `mask` é True, sem depender de
+    `DataFrame.stack()` — o tratamento de NaN em `.where(...).stack()`
+    mudou de comportamento padrão entre versões do pandas (dropava NaN
+    antes, passou a manter em versões mais novas), o que fazia esta função
+    devolver linhas fantasma com `retorno=NaN` dependendo do ambiente.
+    `np.where` sobre o array booleano é estável em qualquer versão.
+    """
+    rows_idx, cols_idx = np.where(mask.to_numpy())
+    return [
+        {
+            "date": returns_wide.index[i],
+            "ticker": returns_wide.columns[j],
+            "retorno": returns_wide.iat[i, j],
+            "tipo": tipo,
+        }
+        for i, j in zip(rows_idx, cols_idx)
+    ]
+
+
 def flag_suspicious_returns(
     returns_wide: pd.DataFrame,
     max_abs_daily_return: float = 1.00,
@@ -116,25 +136,21 @@ def flag_suspicious_returns(
     flags = []
 
     extreme = returns_wide.abs() > max_abs_daily_return
-    if extreme.to_numpy().any():
-        stacked = returns_wide.where(extreme).stack()
-        for (date, ticker), value in stacked.items():
-            flags.append(
-                {"date": date, "ticker": ticker, "retorno": value, "tipo": "retorno_extremo"}
-            )
+    flags.extend(_mask_to_flag_rows(returns_wide, extreme, "retorno_extremo"))
 
     shifted = returns_wide.shift(-1)
     implied_reversal = -returns_wide / (1 + returns_wide)
-    reversal_mask = (
+    spike_mask = (
         (returns_wide.abs() > 0.30)
         & ((shifted - implied_reversal).abs() < 0.02)
     )
-    if reversal_mask.to_numpy().any():
-        stacked = returns_wide.where(reversal_mask).stack()
-        for (date, ticker), value in stacked.items():
-            flags.append(
-                {"date": date, "ticker": ticker, "retorno": value, "tipo": "possivel_split_nao_ajustado"}
-            )
+    # O dia SEGUINTE ao pico (a "reversão" em si) também não é um retorno
+    # real — é o desfazer aritmético do erro do dia anterior — então marca
+    # os dois dias do par, não só o pico.
+    reversal_day_mask = spike_mask.shift(1, fill_value=False)
+    flags.extend(
+        _mask_to_flag_rows(returns_wide, spike_mask | reversal_day_mask, "possivel_split_nao_ajustado")
+    )
 
     df_flags = pd.DataFrame(flags)
     if df_flags.empty:
@@ -144,6 +160,48 @@ def flag_suspicious_returns(
             df_flags.groupby("tipo").size().rename("n_ocorrencias").reset_index()
         )
     return df_flags, resumo
+
+
+def clean_returns(returns_wide: pd.DataFrame, df_flags: pd.DataFrame) -> pd.DataFrame:
+    """Remove (vira NaN) as observações sinalizadas por `flag_suspicious_returns`.
+
+    Sem este passo, os pontos suspeitos continuavam entrando sem filtro no
+    cálculo do sinal e no backtest — exatamente o risco que o case avisa
+    ("uma cotação errada entra no retorno e ainda pode fazer a ação ser
+    selecionada"): um retorno de centenas de % em um dia domina o momentum
+    acumulado se a janela de sinal terminar logo depois do evento, mesmo
+    que ele "se cancele" matematicamente no dia seguinte (caso de split não
+    ajustado) — a assinatura de reversão só aparece OLHANDO OS DOIS DIAS
+    JUNTOS, mas o sinal em uma data intermediária já teria sido contaminado.
+    Também explica overflow numérico em `cumprod`: um retorno de milhares
+    de % composto ao longo de milhares de pregões estoura float64.
+
+    Por isso os DOIS dias de um par de reversão (`possivel_split_nao_ajustado`)
+    viram NaN, não só o primeiro — o segundo dia também não é um retorno
+    real, é o "desfazer" aritmético de um erro no primeiro.
+
+    Tratamos a ausência (NaN) como "sem informação nesse dia para esse
+    papel", não como "retorno zero" — quem decide o que fazer com isso é
+    cada consumidor: `_cumulative_return` (signal.py) trata NaN como 0% via
+    `fillna(0)`, o que é razoável para um ponto isolado removido no meio de
+    uma série; `universe.py` conta como um dia a menos de atividade, o que
+    é o comportamento correto (não sabemos o retorno real daquele dia).
+
+    Limitação declarada: por não termos como confirmar o valor correto
+    contra a fonte primária (B3/CVM), a escolha conservadora é excluir a
+    observação em vez de tentar "adivinhar" o valor certo. Isso pode
+    ocasionalmente descartar um movimento genuíno muito grande (ex.: IPO
+    de primeiro dia, penny stock com notícia real) — o corte de
+    `max_abs_daily_return` (100%/dia) foi calibrado para minimizar esse
+    risco, mas não elimina.
+    """
+    if df_flags.empty:
+        return returns_wide
+
+    cleaned = returns_wide.copy()
+    for _, row in df_flags.iterrows():
+        cleaned.loc[row["date"], row["ticker"]] = np.nan
+    return cleaned
 
 
 def align_calendars(*frames: pd.DataFrame) -> list[pd.DataFrame]:
