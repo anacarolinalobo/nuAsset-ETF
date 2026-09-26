@@ -348,26 +348,43 @@ def main() -> None:
                 help="Quantos pregões a mesa teria para executar a posição-alvo num papel sem estressar o book.",
             )
 
-            capacity_per_name = capacity.estimate_capacity(
+            cap_result = capacity.estimate_capacity(
                 latest_weights, adtv_latest, max_participation_rate=participation_rate,
                 days_to_build_position=days_to_build,
             )
-            product_cap = capacity.product_capacity(capacity_per_name)
 
-            if pd.isna(product_cap):
-                st.warning("Nenhum papel da carteira atual tem ADTV disponível na data de referência.")
+            if cap_result.uncovered_weight > 0:
+                st.warning(
+                    f"{len(cap_result.uncovered_tickers)} papel(éis) da carteira atual "
+                    f"({cap_result.uncovered_weight:.1%} do peso) sem ADTV utilizável na data de "
+                    f"referência — provavelmente falha de cobertura do COTAHIST fornecido (arquivo não "
+                    f"chega até essa data, ou não inclui esse ticker), não iliquidez real do papel. "
+                    f"Excluídos do cálculo do gargalo abaixo, para não zerar a capacidade do produto "
+                    f"inteiro por causa de um buraco de dado isolado."
+                )
+                with st.expander("Ver papéis sem cobertura de ADTV"):
+                    st.dataframe(
+                        cap_result.uncovered_tickers.rename("peso").to_frame().style.format({"peso": "{:.2%}"}),
+                        use_container_width=True,
+                    )
+
+            if pd.isna(cap_result.product_capacity):
+                st.warning("Nenhum papel da carteira atual tem ADTV utilizável na data de referência.")
             else:
-                st.metric("Capacidade estimada do produto (AUM)", f"R$ {product_cap:,.0f}".replace(",", "."))
-                bottleneck = capacity_per_name.index[0]
+                st.metric(
+                    "Capacidade estimada do produto (AUM)",
+                    f"R$ {cap_result.product_capacity:,.0f}".replace(",", "."),
+                )
+                bottleneck = cap_result.capacity_per_name.index[0]
                 st.caption(
                     f"Gargalo: **{bottleneck}** (peso {latest_weights[bottleneck]:.1%}, o papel mais "
-                    f"ilíquido pesado relativo à sua posição-alvo) — capacidade do produto é o MÍNIMO "
+                    f"restritivo entre os com ADTV utilizável) — capacidade do produto é o MÍNIMO "
                     f"entre os papéis, não a soma."
                 )
 
                 st.subheader("Capacidade por papel (10 mais restritivos)")
                 st.dataframe(
-                    capacity_per_name.head(10).rename("capacidade (R$)").to_frame().style.format("{:,.0f}"),
+                    cap_result.capacity_per_name.head(10).rename("capacidade (R$)").to_frame().style.format("{:,.0f}"),
                     use_container_width=True,
                 )
                 st.caption(
