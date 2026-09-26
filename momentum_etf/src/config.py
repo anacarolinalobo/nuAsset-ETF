@@ -35,6 +35,14 @@ class MomentumConfig:
     # usamos a presença de negociação (retorno registrado) como proxy.
     liquidity_window_days: int = 126
     min_active_ratio: float = 0.90
+    # Filtro de liquidez por volume real (opcional): exige ADTV (average
+    # daily traded value) mínimo em R$ na janela de `volume_window_days`
+    # pregões. Só é aplicado quando `eligible_universe` recebe um
+    # `volume_wide` (ver src/volume_loader.py, que lê o COTAHIST da B3).
+    # `None` desliga o filtro — é o padrão porque a base do case
+    # (`acoes_retornos.csv`) não traz volume, só o proxy por retorno acima.
+    min_adtv_brl: float | None = None
+    volume_window_days: int = 21
     # Descarta retornos diários absurdos antes de qualquer cálculo (ver
     # src/data_loader.py::flag_suspicious_returns). Um |retorno| acima disso
     # é tratado como possível erro de cotação, não como sinal real.

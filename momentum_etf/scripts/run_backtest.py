@@ -25,7 +25,7 @@ sys.path.insert(0, str(ROOT))
 
 import pandas as pd
 
-from src import attribution, data_loader, metrics, report, sensitivity
+from src import attribution, capacity, data_loader, metrics, report, sensitivity, volume_loader
 from src.backtest import run_backtest
 from src.config import DEFAULT_CONFIG
 from src.rebalance import generate_rebalance_dates
@@ -54,8 +54,15 @@ def main() -> None:
     cdi_daily = benchmarks[config.risk_free_column]
     bench_returns = benchmarks[config.benchmark_column]
 
+    cotahist_files = sorted(DATA_DIR.glob("COTAHIST_A*.TXT"))
+    volume_wide = None
+    if cotahist_files:
+        print(f"Carregando volume negociado (COTAHIST): {len(cotahist_files)} arquivo(s)...")
+        cotahist = volume_loader.load_cotahist(cotahist_files)
+        volume_wide = volume_loader.build_volume_wide(cotahist)
+
     print("Rodando backtest...")
-    result = run_backtest(returns_wide, cdi_daily, config)
+    result = run_backtest(returns_wide, cdi_daily, config, volume_wide=volume_wide)
 
     rebalance_dates = generate_rebalance_dates(returns_wide.index, config)
     rebalances_per_year = 252 / (len(returns_wide) / max(len(rebalance_dates), 1))
@@ -86,6 +93,12 @@ def main() -> None:
 
     result.turnover_history.to_csv(OUTPUT_DIR / "turnover_history.csv", header=["turnover"])
 
+    if volume_wide is not None:
+        adtv_latest = volume_loader.adtv_on_date(volume_wide, latest_date, config.volume_window_days)
+        capacity_per_name = capacity.estimate_capacity(latest_weights, adtv_latest)
+        capacity_per_name.to_csv(OUTPUT_DIR / "capacity_by_name.csv", header=["capacidade_brl"])
+        print(f"Capacidade do produto (gargalo): R$ {capacity.product_capacity(capacity_per_name):,.0f}")
+
     print("Calculando atribuição de performance...")
     attr = attribution.attribution_history(result.weights_history, ibov_weights, returns_wide)
     attr.to_csv(OUTPUT_DIR / "attribution.csv")
@@ -106,7 +119,11 @@ def main() -> None:
         "Backtest sem look-ahead: sinal e universo em cada rebalance usam só dados até a própria data de rebalance.",
         "Survivorship bias mitigado: ações deslistadas permanecem no universo até o último dia negociado.",
         f"Custo de transação assumido: {config.transaction_cost_bps:.0f} bps por lado sobre o turnover.",
-        "Capacidade do produto não estimada aqui por falta de dado de volume na base fornecida (ver src/capacity.py).",
+        (
+            "Capacidade do produto estimada com ADTV real (COTAHIST B3) — ver capacity_by_name.csv."
+            if volume_wide is not None
+            else "Capacidade do produto não estimada aqui por falta de dado de volume na base fornecida (ver src/capacity.py)."
+        ),
         "Ver README.md para a descrição completa da metodologia e as limitações declaradas.",
     ]
     report.build_dashboard(

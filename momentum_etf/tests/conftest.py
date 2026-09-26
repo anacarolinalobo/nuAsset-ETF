@@ -48,3 +48,11 @@ def synthetic_returns() -> pd.DataFrame:
 @pytest.fixture
 def synthetic_cdi(synthetic_returns) -> pd.Series:
     return pd.Series(0.0003, index=synthetic_returns.index)
+
+
+@pytest.fixture
+def synthetic_volume(synthetic_returns) -> pd.DataFrame:
+    """ADTV (R$) por ticker: T0 bem líquido, T1 abaixo de qualquer corte razoável."""
+    volume = pd.DataFrame(1_000_000.0, index=synthetic_returns.index, columns=synthetic_returns.columns)
+    volume["T1"] = 100.0
+    return volume

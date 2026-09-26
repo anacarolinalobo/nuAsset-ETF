@@ -18,12 +18,14 @@ import numpy as np
 import pandas as pd
 
 from src.config import MomentumConfig
+from src.volume_loader import adtv_on_date
 
 
 def eligible_universe(
     returns_wide: pd.DataFrame,
     date: pd.Timestamp,
     config: MomentumConfig,
+    volume_wide: pd.DataFrame | None = None,
 ) -> pd.Index:
     """Retorna os tickers elegíveis na data `date`.
 
@@ -37,6 +39,12 @@ def eligible_universe(
          na janela de `liquidity_window_days` >= `min_active_ratio`. Sem
          dado de volume na base fornecida, presença de retorno diário é o
          proxy disponível — limitação documentada no README.
+      4. Liquidez por volume real (opcional): se `volume_wide` (ADTV por
+         ticker, ver src/volume_loader.py) for passado e
+         `config.min_adtv_brl` estiver definido, exige ADTV (na janela de
+         `volume_window_days` pregões até `date`) >= `min_adtv_brl`. Sem
+         `volume_wide`, esse critério é ignorado e o comportamento é
+         idêntico ao anterior (só o proxy por retorno).
     """
     history = returns_wide.loc[:date]
     if len(history) < config.min_history_days:
@@ -50,4 +58,10 @@ def eligible_universe(
     is_alive = window.notna().any(axis=0)
 
     mask = has_full_history & is_liquid & is_alive
+
+    if volume_wide is not None and config.min_adtv_brl is not None:
+        adtv = adtv_on_date(volume_wide, date, config.volume_window_days)
+        adtv = adtv.reindex(mask.index).fillna(0.0)
+        mask = mask & (adtv >= config.min_adtv_brl)
+
     return mask[mask].index

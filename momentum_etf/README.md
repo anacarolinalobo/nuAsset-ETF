@@ -99,10 +99,22 @@ apenas dados até aquela data**:
    `liquidity_window_days` (126) pregões — se não, presume-se deslistada.
 3. Passa em um proxy de liquidez: fração de pregões com retorno observado
    na mesma janela >= `min_active_ratio` (90%).
+4. **Opcional — liquidez por volume real:** se um `volume_wide` (ADTV por
+   ticker) for passado para `eligible_universe`/`run_backtest` e
+   `config.min_adtv_brl` estiver definido, exige ADTV (na janela de
+   `volume_window_days`, padrão 21 pregões) >= `min_adtv_brl`. `src/
+   volume_loader.py` monta esse `volume_wide` a partir do volume financeiro
+   negociado (`VOLTOT`) dos arquivos históricos de cotação da B3
+   ("COTAHIST") — lógica extraída e limpa da exploração em
+   `caseNuAsset.ipynb`. Sem esses arquivos (não incluídos neste
+   repositório) ou sem `min_adtv_brl` definido, esse critério é ignorado e
+   o comportamento é idêntico ao anterior (só o proxy do item 3). Quando os
+   arquivos `COTAHIST_A<ano>.TXT` estiverem em `data/`,
+   `scripts/run_backtest.py` os carrega automaticamente.
 
 A ação sai do universo automaticamente quando seu histórico de retorno
 acaba (sem regra explícita de remoção — a ausência de dado já resolve
-isso) ou quando deixa de passar no filtro de liquidez.
+isso) ou quando deixa de passar em algum dos filtros de liquidez.
 
 **Por que isso evita survivorship bias:** como `acoes_retornos.csv` inclui
 ações que saíram de negociação até o último dia em que negociaram, o
@@ -261,21 +273,43 @@ share e atribuição de performance (`src/attribution.py`).
 ## 4. Capacidade do produto
 
 `src/capacity.py` implementa a fórmula de capacidade
-(`ADTV × participação_máxima × dias / peso`), mas **não é calculada** no
-`run_backtest.py` porque a base fornecida não traz volume financeiro
-negociado — só retorno. Buscar essa série (ex.: COTAHIST da B3) é o
-próximo passo natural antes de qualquer decisão de tamanho de produto; a
-função está pronta para receber um `pd.Series` de ADTV por ticker assim
-que disponível, sem mudar a interface.
+(`ADTV × participação_máxima × dias / peso`). A base do case
+(`acoes_retornos.csv`) não traz volume financeiro negociado — só retorno —
+então, por padrão, essa capacidade **não é calculada** em
+`run_backtest.py`.
+
+Isso deixou de ser um bloqueio puramente hipotético: `src/volume_loader.py`
+lê o volume financeiro real (`VOLTOT`) dos arquivos históricos de cotação
+da B3 ("COTAHIST"), a mesma lógica de parsing explorada em
+`caseNuAsset.ipynb`, agora limpa e testada (`tests/test_volume_loader.py`).
+Quando os arquivos `COTAHIST_A<ano>.TXT` (baixados separadamente da B3 —
+não fazem parte deste repositório, são dezenas de MB por ano) estiverem em
+`data/`, `scripts/run_backtest.py` os detecta automaticamente, monta o ADTV
+por ticker e:
+
+- usa esse ADTV como filtro de liquidez adicional no universo elegível
+  (item 4 da seção "Universo elegível" acima), se `min_adtv_brl` for
+  definido em `MomentumConfig`;
+- calcula a capacidade real do produto na última data de rebalance e
+  exporta `output/capacity_by_name.csv`.
+
+Sem os arquivos COTAHIST, o comportamento é o mesmo de antes: universo só
+pelo proxy de retorno, capacidade não estimada.
 
 ## O que ficou de fora (priorização declarada)
 
 - Dados reais: não roda contra os CSVs do case porque eles não estavam
   disponíveis nesta sessão (ver aviso no topo).
-- Fontes externas complementares (ex.: volume B3, classificação setorial
-  para uma atribuição Brinson completa): não buscadas por falta de acesso
-  a dados de mercado neste ambiente — não por decisão metodológica.
-- Estimativa de capacidade real (depende de volume).
+- Fontes externas complementares (ex.: classificação setorial para uma
+  atribuição Brinson completa): não buscadas por falta de acesso a dados
+  de mercado neste ambiente — não por decisão metodológica. O volume da B3
+  (COTAHIST) já tem parsing pronto em `src/volume_loader.py` (ver seção
+  "Capacidade do produto"), mas os arquivos em si não foram baixados nesta
+  sessão.
+- Estimativa de capacidade real com os dados do case: a fórmula e o
+  parsing de volume estão prontos (`src/capacity.py`,
+  `src/volume_loader.py`), mas só rodam de fato com os arquivos COTAHIST em
+  `data/`, que não foram baixados nesta sessão.
 - Dashboard interativo (Streamlit): optou-se por HTML estático
   autocontido, mais simples de entregar e abrir sem servidor rodando;
   trade-off é a ausência de filtros interativos por período.
