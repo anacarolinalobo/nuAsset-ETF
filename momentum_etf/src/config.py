@@ -6,6 +6,8 @@ análise de sensibilidade (src/sensitivity.py) possa varrer esses valores
 de forma sistemática.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 
 
