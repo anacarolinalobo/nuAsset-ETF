@@ -2,6 +2,8 @@ pandas>=2.0
 numpy>=1.24
 matplotlib>=3.7
 pytest>=7.4
+streamlit>=1.30
+plotly>=5.18
 
 # Opcional: melhora a qualidade do fuzzy matching ticker<->CNPJ em
 # src/company_mapping.py (sem ela, cai automaticamente para difflib,

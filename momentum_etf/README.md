@@ -48,19 +48,43 @@ python scripts/build_market_data.py   # gera ADTV e market cap sintéticos
 python scripts/build_market_data.py   # opcional; sem isso, cai no proxy antigo
 python scripts/run_backtest.py
 
-# 3) testes unitários
+# 3) dashboard interativo (Streamlit) — alternativa ao script acima
+streamlit run app.py
+
+# 4) testes unitários
 pytest -q
 ```
 
 `build_market_data.py` é opcional: se `data/derived/adtv.csv` e
-`market_cap.csv` não existirem, `run_backtest.py` roda igual, só que com
-o filtro de liquidez de fallback (presença de retorno, sem dado externo).
+`market_cap.csv` não existirem, `run_backtest.py`/`app.py` rodam igual,
+só que com o filtro de liquidez de fallback (presença de retorno, sem
+dado externo).
 
-Saídas em `output/`: `dashboard.html` (relatório visual), `summary_metrics.csv`,
-`daily_returns.csv`, `turnover_history.csv`, `attribution.csv`,
-`sensitivity_lookback.csv`, `sensitivity_cost.csv`.
+Saídas em `output/`: `dashboard.html` (relatório visual estático),
+`summary_metrics.csv`, `daily_returns.csv`, `turnover_history.csv`,
+`attribution.csv`, `sensitivity_lookback.csv`, `sensitivity_cost.csv`.
 Em `data/derived/`: `ticker_cnpj_mapping.csv` (revisar antes de confiar —
 ver seção de limitações), `adtv.csv`, `market_cap.csv`.
+
+## Dashboard interativo (`app.py`)
+
+`streamlit run app.py` sobe um dashboard local onde a frequência de
+rebalanceamento (mensal/trimestral/semestral) e os principais parâmetros
+da metodologia (janela do sinal, skip, corte de seleção, teto de peso,
+custo de transação) ficam ajustáveis na barra lateral — a forma mais
+direta de responder "quão sensível é o resultado à parametrização?" é
+deixar o leitor mexer e ver o que muda, em vez de só descrever em texto.
+
+Cada combinação de parâmetros é cacheada (`st.cache_data`): a primeira
+vez que uma configuração é testada leva alguns segundos (o backtest roda
+de novo), repetir uma combinação já vista é instantâneo. A aba "Comparar
+frequências" roda mensal/trimestral/semestral lado a lado (mantendo os
+demais parâmetros fixos) atrás de um checkbox, porque isso triplica o
+tempo de cálculo.
+
+O `dashboard.html` estático gerado por `scripts/run_backtest.py`
+continua existindo como entregável separado — mais simples de anexar a
+um e-mail ou abrir sem instalar nada, mas sem interatividade.
 
 ## Estrutura do código
 
@@ -87,8 +111,9 @@ src/
   report.py                dashboard HTML autocontido
 scripts/
   build_market_data.py     parseia COTAHIST + FRE, gera ADTV/market cap/mapeamento
-  run_backtest.py          orquestra tudo, ponta a ponta
+  run_backtest.py          orquestra tudo, ponta a ponta, gera dashboard.html estático
   make_sample_data.py      gera dados sintéticos (smoke test apenas)
+app.py                     dashboard interativo (Streamlit) -- parâmetros ajustáveis
 tests/                     testes unitários (pytest) com dados sintéticos pequenos
 ```
 
@@ -332,9 +357,6 @@ que disponível, sem mudar a interface.
   `run_backtest.py` nesta entrega — próximo passo natural, não uma
   limitação de dado (a ADTV real já existe no pipeline agora).
 - Teste out-of-sample formal com otimização cega.
-- Dashboard interativo (Streamlit): optou-se por HTML estático
-  autocontido, mais simples de entregar e abrir sem servidor rodando;
-  trade-off é a ausência de filtros interativos por período.
 - Apresentação de slides e leitura de produto (papel no portfólio, taxa de
   administração, tamanho de posição): são entregáveis separados do código,
   não cobertos por este pacote Python.

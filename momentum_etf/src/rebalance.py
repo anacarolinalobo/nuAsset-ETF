@@ -21,14 +21,29 @@ from src.config import MomentumConfig
 _PERIOD_FREQ_ALIASES = {"ME": "M", "QE": "Q", "YE": "Y", "AE": "Y"}
 
 
+def _period_ends(trading_days: pd.DatetimeIndex, period_freq: str) -> pd.DatetimeIndex:
+    period_freq = _PERIOD_FREQ_ALIASES.get(period_freq, period_freq)
+    series = pd.Series(trading_days, index=trading_days)
+    period_ends = series.groupby(trading_days.to_period(period_freq)).max()
+    return pd.DatetimeIndex(period_ends.values).sort_values()
+
+
 def generate_rebalance_dates(
     trading_days: pd.DatetimeIndex, config: MomentumConfig
 ) -> pd.DatetimeIndex:
-    """Última data de pregão de cada período (`config.rebalance_freq`)."""
-    period_freq = _PERIOD_FREQ_ALIASES.get(config.rebalance_freq, config.rebalance_freq)
-    series = pd.Series(trading_days, index=trading_days)
-    period_ends = series.groupby(trading_days.to_period(period_freq)).max()
-    dates = pd.DatetimeIndex(period_ends.values).sort_values()
+    """Última data de pregão de cada período (`config.rebalance_freq`).
+
+    Aceita "M" (mensal), "Q" (trimestral) ou "S" (semestral). "S" não é um
+    alias nativo de `Period` do pandas (que não lida bem com múltiplos
+    como "2Q" para essa finalidade de agrupamento), então é construído a
+    partir dos fins de trimestre, mantendo apenas o 2º e o 4º de cada ano
+    (fim do 1º e do 2º semestre).
+    """
+    if config.rebalance_freq == "S":
+        quarterly = _period_ends(trading_days, "Q")
+        dates = quarterly[1::2]
+    else:
+        dates = _period_ends(trading_days, config.rebalance_freq)
 
     start = pd.Timestamp(config.backtest_start)
     end = pd.Timestamp(config.backtest_end)
