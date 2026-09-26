@@ -30,10 +30,12 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from src import attribution, data_loader, metrics
+from src import attribution, data_loader, metrics, pca_analysis
 from src.backtest import run_backtest
 from src.config import DEFAULT_CONFIG, MomentumConfig
 from src.rebalance import generate_rebalance_dates
+from src.signal import compute_signal_on_date
+from src.universe import eligible_universe
 
 DATA_DIR = ROOT / "data"
 DERIVED_DIR = DATA_DIR / "derived"
@@ -182,6 +184,43 @@ def rolling_sharpe_figure(port_returns: pd.Series, risk_free: pd.Series, window:
     return fig
 
 
+def pca_scree_figure(explained_variance_ratio: pd.Series) -> go.Figure:
+    cumulative = explained_variance_ratio.cumsum()
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=explained_variance_ratio.index, y=explained_variance_ratio.values * 100,
+                          name="Variância explicada", marker_color=COLOR_INDEX))
+    fig.add_trace(go.Scatter(x=cumulative.index, y=cumulative.values * 100, name="Acumulada",
+                              line=dict(color=COLOR_TURNOVER, width=2)))
+    fig.update_layout(title="Variância explicada por componente", template="plotly_white", height=350,
+                       yaxis_title="%", legend=dict(orientation="h", y=1.15))
+    return fig
+
+
+def pca_scatter_figure(merged: pd.DataFrame, corr: float) -> go.Figure:
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=merged["carga_pc1"], y=merged["score_momentum"], mode="markers", text=merged.index,
+        hovertemplate="%{text}<br>carga PC1: %{x:.2f}<br>score momentum: %{y:.2f}<extra></extra>",
+        marker=dict(color=COLOR_INDEX, size=7, opacity=0.7),
+    ))
+    fig.update_layout(
+        title=f"Carga no PC1 (proxy de beta de mercado) vs. score de momentum — correlação {corr:.2f}",
+        template="plotly_white", height=420,
+        xaxis_title="Carga no PC1", yaxis_title="Score de momentum (z-score)",
+    )
+    return fig
+
+
+def pca_loadings_heatmap_figure(loadings: pd.DataFrame) -> go.Figure:
+    fig = go.Figure(data=go.Heatmap(
+        z=loadings.values, x=list(loadings.columns), y=list(loadings.index),
+        colorscale="RdBu", zmid=0, colorbar=dict(title="carga"),
+    ))
+    fig.update_layout(title="Cargas por componente", template="plotly_white",
+                       height=max(320, 26 * len(loadings)))
+    return fig
+
+
 # ============================================================
 # App
 # ============================================================
@@ -258,8 +297,8 @@ def main() -> None:
     kpi_cols[3].metric("Turnover anualizado", f"{summary['Turnover anualizado']:.2%}")
     kpi_cols[4].metric("Nº de ativos (atual)", f"{len(latest_weights)}")
 
-    tab_desempenho, tab_carteira, tab_atribuicao, tab_comparar, tab_dados = st.tabs(
-        ["Desempenho", "Carteira", "Atribuição", "Comparar frequências", "Qualidade de dado"]
+    tab_desempenho, tab_carteira, tab_atribuicao, tab_pca, tab_comparar, tab_dados = st.tabs(
+        ["Desempenho", "Carteira", "Atribuição", "PCA", "Comparar frequências", "Qualidade de dado"]
     )
 
     with tab_desempenho:
@@ -287,6 +326,95 @@ def main() -> None:
         st.caption("Atribuição de contribuição vs. Ibovespa por janela entre rebalanceamentos (ver src/attribution.py).")
         attr = attribution.attribution_history(result.weights_history, data["ibov_weights"], data["returns_wide"])
         st.dataframe(attr.style.format("{:.2%}"), use_container_width=True)
+
+    with tab_pca:
+        st.caption(
+            "PCA (componentes principais) sobre retornos padronizados — decompõe o risco em fatores "
+            "ortogonais. Metodologia completa e limitações em src/pca_analysis.py."
+        )
+        pca_universe_tab, pca_asset_tab = st.tabs(["Risco da carteira", "Classes de ativos"])
+
+        full_eligible = eligible_universe(
+            data["returns_wide"], latest_date, config,
+            adtv_wide=data["adtv_wide"], market_cap_wide=data["market_cap_wide"],
+        )
+        momentum_score_full = compute_signal_on_date(data["returns_wide"], latest_date, full_eligible, config)
+
+        with pca_universe_tab:
+            st.markdown("**Quanto do risco da carteira é sistemático (poucos fatores) vs. diversificado?** "
+                        "E o sinal de momentum é distinto de só \"comprar ações de maior beta\"?")
+            universe_choice = st.radio(
+                "Conjunto de ações", ["Carteira atual", "Universo elegível (mesma data)"], horizontal=True,
+            )
+            pca_window = st.slider("Janela (pregões)", 126, 504, 252, step=21, key="pca_window_universe")
+
+            tickers_for_pca = (
+                list(latest_weights.index) if universe_choice == "Carteira atual" else list(full_eligible)
+            )
+
+            try:
+                pca_result = pca_analysis.compute_universe_pca(
+                    data["returns_wide"], tickers_for_pca, latest_date, window_days=pca_window, n_components=10,
+                )
+            except ValueError as exc:
+                st.warning(str(exc))
+            else:
+                n90 = pca_result.n_components_for_variance(0.90)
+                kpi_a, kpi_b, kpi_c = st.columns(3)
+                kpi_a.metric("PC1 explica", f"{pca_result.explained_variance_ratio.iloc[0]:.1%}")
+                kpi_b.metric("Componentes p/ 90% da variância", f"{n90} de {pca_result.n_assets}")
+                kpi_c.metric("Ativos usados no PCA", f"{pca_result.n_assets} de {len(tickers_for_pca)}")
+
+                st.plotly_chart(pca_scree_figure(pca_result.explained_variance_ratio), use_container_width=True)
+
+                merged = pca_analysis.pc1_loading_vs_momentum_score(pca_result.loadings, momentum_score_full)
+                if len(merged) >= 3:
+                    corr = merged["carga_pc1"].corr(merged["score_momentum"])
+                    st.plotly_chart(pca_scatter_figure(merged, corr), use_container_width=True)
+                    if corr > 0.5:
+                        st.info(f"Correlação alta ({corr:.2f}) entre carga no PC1 e score de momentum — "
+                                "indício de que parte do sinal aqui é redundante com simplesmente "
+                                "comprar ações de maior beta de mercado, não um fator distinto.")
+                    else:
+                        st.success(f"Correlação baixa ({corr:.2f}) entre carga no PC1 e score de momentum — "
+                                   "o sinal parece captar algo além de só \"beta alto\".")
+
+                if pca_result.dropped_assets:
+                    with st.expander(f"{len(pca_result.dropped_assets)} ativo(s) descartado(s) por histórico incompleto na janela"):
+                        st.write(pca_result.dropped_assets)
+
+        with pca_asset_tab:
+            st.markdown("**Com quais classes de ativos o índice compete (mesmo fator de risco) e quais "
+                        "complementa (fatores praticamente ortogonais)?**")
+            pca_window_asset = st.slider("Janela (pregões)", 126, 756, 504, step=21, key="pca_window_asset")
+
+            try:
+                asset_pca = pca_analysis.compute_asset_class_pca(
+                    data["benchmarks"], result.returns_net, latest_date,
+                    window_days=pca_window_asset, n_components=10,
+                )
+            except ValueError as exc:
+                st.warning(str(exc))
+            else:
+                st.plotly_chart(pca_scree_figure(asset_pca.explained_variance_ratio), use_container_width=True)
+                st.plotly_chart(pca_loadings_heatmap_figure(asset_pca.loadings), use_container_width=True)
+
+                dominant_pc, ranked = pca_analysis.dominant_component_for_asset(asset_pca.loadings, "Índice Momentum")
+                momentum_loading = ranked["Índice Momentum"]
+                competitors = ranked.drop("Índice Momentum")
+                close = competitors[(competitors - momentum_loading).abs() < 0.25].index.tolist()
+                far = competitors[competitors.abs() < 0.15].index.tolist()
+
+                st.markdown(f"O Índice Momentum carrega mais forte em **{dominant_pc}** (carga {momentum_loading:.2f}).")
+                if close:
+                    st.markdown(f"**Compete por risco com** (carga parecida no mesmo componente): {', '.join(close)}")
+                if far:
+                    st.markdown(f"**Complementa** (carga baixa nesse componente, fator quase ortogonal): {', '.join(far)}")
+                if not close and not far:
+                    st.markdown("Nenhum outro ativo com carga claramente próxima ou claramente ortogonal nesse componente.")
+
+                if asset_pca.dropped_assets:
+                    st.caption(f"Descartado por histórico incompleto na janela: {', '.join(asset_pca.dropped_assets)}")
 
     with tab_comparar:
         if compare_frequencies:
