@@ -109,7 +109,28 @@ def active_share(
     return 0.5 * (p - b).abs().sum()
 
 
+def _compatible_resample_freq(freq: str) -> str:
+    """Escolhe o alias de frequência de resample aceito pela versão do pandas instalada.
+
+    O pandas trocou "M"/"Q"/"Y" por "ME"/"QE"/"YE" no `resample` a partir da
+    2.2 e removeu de vez os antigos na 3.0 — mas quem ainda estiver em uma
+    versão anterior à 2.2 não reconhece os novos aliases. Testa o alias
+    pedido e cai para a variante alternativa se a versão instalada não
+    aceitar, para o mesmo código rodar em qualquer uma delas.
+    """
+    alternates = {"ME": "M", "M": "ME", "QE": "Q", "Q": "QE", "YE": "Y", "Y": "YE"}
+    try:
+        pd.tseries.frequencies.to_offset(freq)
+        return freq
+    except ValueError:
+        alt = alternates.get(freq)
+        if alt is None:
+            raise
+        return alt
+
+
 def hit_rate_vs_benchmark(returns: pd.Series, benchmark_returns: pd.Series, freq: str = "ME") -> float:
+    freq = _compatible_resample_freq(freq)
     port_m = (1 + returns).resample(freq).prod() - 1
     bench_m = (1 + benchmark_returns.reindex(returns.index).fillna(0.0)).resample(freq).prod() - 1
     aligned = pd.concat([port_m, bench_m], axis=1).dropna()
