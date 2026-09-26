@@ -60,11 +60,37 @@ def load_ibov_composition(path: str | Path) -> pd.DataFrame:
 
 
 def load_benchmarks(path: str | Path) -> pd.DataFrame:
-    """Lê benchmarks_diarios.csv (já wide) e padroniza nomes de coluna."""
+    """Lê benchmarks_diarios.csv (já wide) e padroniza nomes de coluna.
+
+    Devolve os valores EXATAMENTE como estão no arquivo — em NÍVEL (pontos
+    de índice, fator acumulado, preço), não em retorno percentual.
+    Confirmado inspecionando dado real: Ibovespa na casa de dezenas/
+    centenas de milhares de pontos, CDI como fator acumulado crescendo de
+    ~3.5 para ~21 ao longo de 2008-2026, bitcoin em preço R$. Use
+    `benchmarks_to_returns()` para obter a série que o resto do código
+    (Sharpe, beta, tracking error, curva acumulada) espera.
+    """
     df = pd.read_csv(path, parse_dates=["date"])
     df = df.set_index("date").sort_index()
     df.columns = [_normalize_colname(c) for c in df.columns]
     return df
+
+
+def benchmarks_to_returns(benchmarks_levels: pd.DataFrame) -> pd.DataFrame:
+    """Converte as séries de nível de `load_benchmarks` em retorno diário.
+
+    `.pct_change()` é a transformação correta para qualquer um dos 3 tipos
+    de série presentes (pontos de índice, fator acumulado, preço) — o
+    retorno diário é a variação percentual dia a dia em qualquer um dos
+    três casos, independente da escala/base arbitrária do nível.
+
+    Precisa rodar logo após `load_benchmarks`, ANTES de qualquer outro
+    cálculo (inclusive antes de `flag_suspicious_returns`/`clean_returns`
+    — aplicar a checagem de retorno suspeito sobre o NÍVEL, não sobre o
+    retorno derivado, sinalizava a série inteira como "extrema" e zerava
+    CDI/Ibovespa por completo, silenciosamente).
+    """
+    return benchmarks_levels.pct_change()
 
 
 def _normalize_colname(name: str) -> str:
@@ -87,6 +113,8 @@ def _normalize_colname(name: str) -> str:
         "s&p500": "sp500_brl",
         "bitcoin": "bitcoin_brl",
         "btc": "bitcoin_brl",
+        "btc_brl": "bitcoin_brl",
+        "bitcoin_brl": "bitcoin_brl",
     }
     key = name.replace("_", " ").strip()
     return replacements.get(key, replacements.get(name, name.replace(" ", "_")))

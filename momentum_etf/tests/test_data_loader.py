@@ -1,7 +1,28 @@
 import numpy as np
 import pandas as pd
 
-from src.data_loader import clean_returns, flag_suspicious_returns
+from src.data_loader import benchmarks_to_returns, clean_returns, flag_suspicious_returns
+
+
+def test_benchmarks_to_returns_converts_level_to_pct_change():
+    dates = pd.bdate_range("2020-01-01", periods=4)
+    # nível tipo Ibovespa: sobe 1%, sobe 2%, cai 1%
+    levels = pd.DataFrame({"ibovespa": [100000.0, 101000.0, 103020.0, 101989.8]}, index=dates)
+
+    returns = benchmarks_to_returns(levels)
+
+    assert pd.isna(returns.iloc[0, 0])
+    assert abs(returns.iloc[1, 0] - 0.01) < 1e-6
+    assert abs(returns.iloc[2, 0] - 0.02) < 1e-6
+    assert abs(returns.iloc[3, 0] - (-0.01)) < 1e-6
+
+
+def test_benchmarks_to_returns_scale_invariant_to_arbitrary_base():
+    dates = pd.bdate_range("2020-01-01", periods=3)
+    levels_a = pd.DataFrame({"x": [10.0, 11.0, 9.9]}, index=dates)
+    levels_b = pd.DataFrame({"x": [1000.0, 1100.0, 990.0]}, index=dates)
+
+    pd.testing.assert_frame_equal(benchmarks_to_returns(levels_a), benchmarks_to_returns(levels_b))
 
 
 def test_flags_extreme_return():

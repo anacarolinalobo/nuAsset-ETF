@@ -83,31 +83,47 @@ def make_ibov_composition(returns_long: pd.DataFrame, n_components: int = 40) ->
 
 
 def make_benchmarks(returns_long: pd.DataFrame) -> pd.DataFrame:
+    """Gera benchmarks_diarios.csv sintético em NÍVEL, como o arquivo real.
+
+    Confirmado contra dado real do case: a coluna vem como pontos de
+    índice / fator acumulado / preço, não retorno percentual (Ibovespa na
+    casa de dezenas de milhares de pontos, CDI como fator acumulado
+    crescendo de ~3.5 para ~21 ao longo de 2008-2026). Gera retorno diário
+    internamente e acumula (cumprod) a partir de um nível inicial
+    plausível, para o smoke-test exercitar `benchmarks_to_returns()` do
+    jeito que ele vai rodar de verdade.
+    """
     dates = pd.DatetimeIndex(sorted(returns_long["date"].unique()))
     n = len(dates)
 
-    cdi = np.full(n, 0.0004)
-    ibov = RNG.normal(0.0003, 0.014, n)
-    ima_s = cdi * 1.02
-    idka = RNG.normal(0.0003, 0.006, n)
-    ima_b = RNG.normal(0.0004, 0.007, n)
-    ihfa = RNG.normal(0.0003, 0.006, n)
-    ifix = RNG.normal(0.0003, 0.009, n)
-    sp500 = RNG.normal(0.0004, 0.011, n)
-    btc = RNG.normal(0.0006, 0.035, n)
+    cdi_ret = np.full(n, 0.0004)
+    ibov_ret = RNG.normal(0.0003, 0.014, n)
+    ima_s_ret = cdi_ret * 1.02
+    idka_ret = RNG.normal(0.0003, 0.006, n)
+    ima_b_ret = RNG.normal(0.0004, 0.007, n)
+    ihfa_ret = RNG.normal(0.0003, 0.006, n)
+    ifix_ret = RNG.normal(0.0003, 0.009, n)
+    sp500_ret = RNG.normal(0.0004, 0.011, n)
+    btc_ret = RNG.normal(0.0006, 0.035, n)
+
+    def _to_level(returns: np.ndarray, start: float) -> np.ndarray:
+        return start * np.cumprod(1 + returns)
+
+    btc_level = _to_level(btc_ret, 1.0)
+    btc_level[: n // 4] = np.nan  # bitcoin não existia como ativo negociável no início da amostra
 
     return pd.DataFrame(
         {
             "date": dates,
-            "cdi": cdi,
-            "ima_s": ima_s,
-            "idka_pre_3a": idka,
-            "ima_b": ima_b,
-            "ihfa": ihfa,
-            "ifix": ifix,
-            "ibovespa": ibov,
-            "sp500_brl": sp500,
-            "bitcoin_brl": btc,
+            "cdi": _to_level(cdi_ret, 3.5),
+            "ima_s": _to_level(ima_s_ret, 2000.0),
+            "idka_pre_3a": _to_level(idka_ret, 2000.0),
+            "ima_b": _to_level(ima_b_ret, 3000.0),
+            "ihfa": _to_level(ihfa_ret, 2000.0),
+            "ifix": _to_level(ifix_ret, 1500.0),
+            "ibovespa": _to_level(ibov_ret, 60000.0),
+            "sp500_brl": _to_level(sp500_ret, 2500.0),
+            "btc_brl": btc_level,
         }
     )
 
