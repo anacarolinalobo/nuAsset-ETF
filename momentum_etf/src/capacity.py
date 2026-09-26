@@ -1,20 +1,17 @@
 """Estimativa de capacidade do produto (AUM implementável na B3).
 
-Limitação relevante: a base fornecida traz apenas RETORNOS, sem volume
-financeiro negociado. Capacidade de um índice de momentum depende
-diretamente de ADTV (average daily traded value) por papel, que não temos.
-
-Duas opções foram consideradas:
-  1. Buscar volume histórico via fonte externa (ex.: dados de pregão B3 /
-     provedores de mercado) e casar por ticker/data.
-  2. Parametrizar um ADTV assumido por faixa de liquidez (conservador) e
-     expor a fórmula de forma transparente, deixando explícito que é uma
-     estimativa de ordem de grandeza, não um número validado.
-
-Optamos pela opção 2 para este entregável — a integração de volume real é
-listada no README como próximo passo natural, não coberta por restrição de
-tempo/dado, e a fórmula abaixo foi escrita para aceitar um DataFrame de
-ADTV real assim que disponível, sem mudar a interface.
+Os 3 CSVs do case trazem apenas RETORNOS, sem volume financeiro
+negociado — capacidade de um índice de momentum depende diretamente de
+ADTV (average daily traded value) por papel, que não vem ali. Isso foi
+resolvido via `src/cotahist.py` (parser dos arquivos de pregão da B3,
+usado também no filtro de liquidez em `universe.py`): quando
+`scripts/build_market_data.py` já rodou, `data/derived/adtv.csv` traz
+ADTV real por ticker/data, e é isso que `app.py` passa para
+`estimate_capacity` — não é mais uma estimativa assumida, é ADTV
+observado. Sem esse arquivo (COTAHIST não fornecido), a função ainda
+aceita uma série de ADTV assumida manualmente por faixa de liquidez,
+deixado explícito na UI que é uma estimativa de ordem de grandeza nesse
+caso, não um número validado.
 """
 
 from __future__ import annotations
