@@ -367,12 +367,24 @@ share e atribuição de performance (`src/attribution.py`).
 ## 4. Capacidade do produto
 
 `src/capacity.py` implementa a fórmula de capacidade
-(`ADTV × participação_máxima × dias / peso`), mas **não é calculada** no
-`run_backtest.py` porque a base fornecida não traz volume financeiro
-negociado — só retorno. Buscar essa série (ex.: COTAHIST da B3) é o
-próximo passo natural antes de qualquer decisão de tamanho de produto; a
-função está pronta para receber um `pd.Series` de ADTV por ticker assim
-que disponível, sem mudar a interface.
+(`ADTV × participação_máxima × dias / peso`) e agora está **conectada a
+ADTV real**: `src/cotahist.py` extrai o volume financeiro negociado do
+COTAHIST da B3, `scripts/build_market_data.py` agrega isso em
+`data/derived/adtv.csv`, e a aba "Capacidade" do dashboard interativo
+(`app.py`) usa esse mesmo ADTV — com sliders para participação máxima do
+volume diário e dias para montar a posição — para estimar o AUM máximo
+implementável da carteira atual. A capacidade do produto é o **mínimo**
+entre os papéis (gargalo clássico de estratégias small/mid cap), com o
+papel-gargalo exposto explicitamente; nomes sem cobertura confiável de
+ADTV (buraco de dado, não iliquidez real) são separados do cálculo em vez
+de zerar a capacidade do produto inteiro (`CapacityResult.uncovered_*`,
+ver `src/capacity.py`).
+
+**Limitação que permanece**: essa estimativa só aparece no dashboard
+interativo (`app.py`), não no `run_backtest.py`/`dashboard.html`
+estático — rodar `streamlit run app.py` é necessário para vê-la. E o
+`min_usable_adtv`/limiar de cobertura ainda é um valor de ordem de
+grandeza, não calibrado contra a granularidade real do COTAHIST do case.
 
 ## O que ficou de fora (priorização declarada)
 
@@ -386,10 +398,9 @@ que disponível, sem mudar a interface.
 - Classificação setorial para uma atribuição Brinson completa (a
   atribuição implementada é por contribuição de ativo, não por setor) —
   não buscada por falta de acesso a dados de mercado neste ambiente.
-- Estimativa de capacidade real: a fórmula em `src/capacity.py` já aceita
-  a ADTV de `src/cotahist.py` diretamente, mas não está plugada em
-  `run_backtest.py` nesta entrega — próximo passo natural, não uma
-  limitação de dado (a ADTV real já existe no pipeline agora).
+- Expor a capacidade estimada (ADTV real) também no `dashboard.html`
+  estático gerado por `run_backtest.py` — hoje só está na aba
+  "Capacidade" do dashboard interativo (`app.py`).
 - Apresentação de slides e leitura de produto (papel no portfólio, taxa de
   administração, tamanho de posição): são entregáveis separados do código,
   não cobertos por este pacote Python.
