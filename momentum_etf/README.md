@@ -52,21 +52,46 @@ python scripts/run_backtest.py
 #    pode levar vários minutos — 1 backtest por combinação da grade)
 python scripts/run_train_test_split.py
 
-# 4) testes unitários
+# 4) dashboard interativo (Streamlit) — alternativa/complemento ao dashboard
+#    estático gerado no passo 2
+streamlit run app.py
+
+# 5) testes unitários
 pytest -q
 ```
 
 `build_market_data.py` é opcional: se `data/derived/adtv.csv` e
-`market_cap.csv` não existirem, `run_backtest.py` roda igual, só que com
-o filtro de liquidez de fallback (presença de retorno, sem dado externo).
+`market_cap.csv` não existirem, `run_backtest.py`/`app.py` rodam igual,
+só que com o filtro de liquidez de fallback (presença de retorno, sem
+dado externo).
 
-Saídas em `output/`: `dashboard.html` (relatório visual), `summary_metrics.csv`,
-`daily_returns.csv`, `turnover_history.csv`, `attribution.csv`,
-`sensitivity_lookback.csv`, `sensitivity_cost.csv`. Saídas de
-`scripts/run_train_test_split.py` em `output/train_test_split/`:
+Saídas em `output/`: `dashboard.html` (relatório visual estático),
+`summary_metrics.csv`, `daily_returns.csv`, `turnover_history.csv`,
+`attribution.csv`, `sensitivity_lookback.csv`, `sensitivity_cost.csv`.
+Saídas de `scripts/run_train_test_split.py` em `output/train_test_split/`:
 `grid_treino_teste.csv`, `resumo.csv`. Em `data/derived/`:
 `ticker_cnpj_mapping.csv` (revisar antes de confiar — ver seção de
 limitações), `adtv.csv`, `market_cap.csv`.
+
+## Dashboard interativo (`app.py`)
+
+`streamlit run app.py` sobe um dashboard local onde a frequência de
+rebalanceamento (mensal/trimestral/semestral) e os principais parâmetros
+da metodologia (janela do sinal, skip, corte de seleção, teto de peso,
+custo de transação) ficam ajustáveis na barra lateral — a forma mais
+direta de responder "quão sensível é o resultado à parametrização?" é
+deixar o leitor mexer e ver o que muda, em vez de só descrever em texto.
+
+Cada combinação de parâmetros é cacheada (`st.cache_data`): a primeira
+vez que uma configuração é testada leva alguns segundos (o backtest roda
+de novo), repetir uma combinação já vista é instantâneo. A aba "Comparar
+frequências" roda mensal/trimestral/semestral lado a lado (mantendo os
+demais parâmetros fixos) atrás de um checkbox, porque isso triplica o
+tempo de cálculo.
+
+O `dashboard.html` estático gerado por `scripts/run_backtest.py`
+continua existindo como entregável separado — mais simples de anexar a
+um e-mail ou abrir sem instalar nada, mas sem interatividade.
 
 ## Estrutura do código
 
@@ -93,9 +118,10 @@ src/
   report.py                dashboard HTML autocontido
 scripts/
   build_market_data.py     parseia COTAHIST + FRE, gera ADTV/market cap/mapeamento
-  run_backtest.py          orquestra tudo, ponta a ponta
+  run_backtest.py          orquestra tudo, ponta a ponta, gera dashboard.html estático
   run_train_test_split.py  validação treino/teste da grade de parâmetros
   make_sample_data.py      gera dados sintéticos (smoke test apenas)
+app.py                     dashboard interativo (Streamlit) -- parâmetros ajustáveis
 tests/                     testes unitários (pytest) com dados sintéticos pequenos
 ```
 
@@ -348,9 +374,10 @@ que disponível, sem mudar a interface.
 - Classificação setorial para uma atribuição Brinson completa (a
   atribuição implementada é por contribuição de ativo, não por setor) —
   não buscada por falta de acesso a dados de mercado neste ambiente.
-- Dashboard interativo (Streamlit): optou-se por HTML estático
-  autocontido, mais simples de entregar e abrir sem servidor rodando;
-  trade-off é a ausência de filtros interativos por período.
+- Estimativa de capacidade real: a fórmula em `src/capacity.py` já aceita
+  a ADTV de `src/cotahist.py` diretamente, mas não está plugada em
+  `run_backtest.py` nesta entrega — próximo passo natural, não uma
+  limitação de dado (a ADTV real já existe no pipeline agora).
 - Apresentação de slides e leitura de produto (papel no portfólio, taxa de
   administração, tamanho de posição): são entregáveis separados do código,
   não cobertos por este pacote Python.

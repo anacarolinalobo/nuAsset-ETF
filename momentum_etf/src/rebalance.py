@@ -35,7 +35,13 @@ def _semester_id(trading_days: pd.DatetimeIndex) -> pd.Index:
 def generate_rebalance_dates(
     trading_days: pd.DatetimeIndex, config: MomentumConfig
 ) -> pd.DatetimeIndex:
-    """Última data de pregão de cada período (`config.rebalance_freq`)."""
+    """Última data de pregão de cada período (`config.rebalance_freq`).
+
+    Aceita "M" (mensal), "Q" (trimestral) ou "S" (semestral). "S" não é um
+    alias nativo de `Period` do pandas (que não lida bem com múltiplos
+    como "2Q" para essa finalidade de agrupamento), então é construído
+    agrupando cada pregão no seu semestre (`_semester_id`).
+    """
     series = pd.Series(trading_days, index=trading_days)
     if config.rebalance_freq == "S":
         period_ends = series.groupby(_semester_id(trading_days)).max()
