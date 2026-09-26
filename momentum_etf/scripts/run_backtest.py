@@ -66,7 +66,12 @@ def main() -> None:
     print("Carregando dados...")
     returns_wide = data_loader.load_returns(DATA_DIR / "acoes_retornos.csv")
     ibov_weights = data_loader.load_ibov_composition(DATA_DIR / "ibov_composicao.csv")
-    benchmarks = data_loader.load_benchmarks(DATA_DIR / "benchmarks_diarios.csv")
+    # benchmarks_diarios.csv vem em NÍVEL (pontos de índice, fator
+    # acumulado, preço) -- confirmado no dado real (Ibovespa em dezenas de
+    # milhares de pontos, CDI como fator acumulado). Converte para retorno
+    # diário antes de qualquer outro cálculo.
+    benchmarks_levels = data_loader.load_benchmarks(DATA_DIR / "benchmarks_diarios.csv")
+    benchmarks = data_loader.benchmarks_to_returns(benchmarks_levels)
     adtv_wide, market_cap_wide = _load_derived_liquidity_data()
 
     flags, flags_summary = data_loader.flag_suspicious_returns(
