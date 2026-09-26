@@ -78,6 +78,20 @@ def test_switching_pca_universe_choice_reruns_without_exception():
     assert not at.exception
 
 
+def test_capacity_tab_renders_metric_when_adtv_available():
+    at = _run_app()
+    labels = {m.label for m in at.metric}
+    assert "Capacidade estimada do produto (AUM)" in labels
+
+
+def test_changing_capacity_sliders_reruns_without_exception():
+    at = _run_app()
+    participation_sliders = [s for s in at.slider if "Participação máxima" in s.label]
+    assert participation_sliders
+    participation_sliders[0].set_value(20).run()
+    assert not at.exception
+
+
 def test_compare_frequencies_checkbox_renders_table():
     at = _run_app()
     checkboxes = [c for c in at.checkbox if "Comparar" in c.label]

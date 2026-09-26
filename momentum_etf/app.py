@@ -30,7 +30,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from src import attribution, data_loader, metrics, pca_analysis
+from src import attribution, capacity, data_loader, metrics, pca_analysis
 from src.backtest import run_backtest
 from src.config import DEFAULT_CONFIG, MomentumConfig
 from src.rebalance import generate_rebalance_dates
@@ -297,8 +297,8 @@ def main() -> None:
     kpi_cols[3].metric("Turnover anualizado", f"{summary['Turnover anualizado']:.2%}")
     kpi_cols[4].metric("Nº de ativos (atual)", f"{len(latest_weights)}")
 
-    tab_desempenho, tab_carteira, tab_atribuicao, tab_pca, tab_comparar, tab_dados = st.tabs(
-        ["Desempenho", "Carteira", "Atribuição", "PCA", "Comparar frequências", "Qualidade de dado"]
+    tab_desempenho, tab_carteira, tab_capacidade, tab_atribuicao, tab_pca, tab_comparar, tab_dados = st.tabs(
+        ["Desempenho", "Carteira", "Capacidade", "Atribuição", "PCA", "Comparar frequências", "Qualidade de dado"]
     )
 
     with tab_desempenho:
@@ -321,6 +321,59 @@ def main() -> None:
         if result.delistings_log:
             st.subheader(f"Delistings detectados ({len(result.delistings_log)})")
             st.dataframe(pd.DataFrame(result.delistings_log), use_container_width=True)
+
+    with tab_capacidade:
+        st.markdown("**Até que tamanho de AUM essa estratégia é implementável na B3, sem que a própria "
+                    "operação de montar a carteira mova o preço contra o fundo?**")
+        adtv_wide = data["adtv_wide"]
+
+        if adtv_wide is None:
+            st.warning(
+                "Sem ADTV real (rode `scripts/build_market_data.py` com os arquivos COTAHIST reais). "
+                "A fórmula em `src/capacity.py` já aceita ADTV assim que disponível — sem ela, não há "
+                "como estimar capacidade de forma defensável aqui (um número chutado seria pior que "
+                "nenhum número)."
+            )
+        else:
+            adtv_latest = adtv_wide.reindex([latest_date], method="ffill").iloc[0]
+
+            col_a, col_b = st.columns(2)
+            participation_rate = col_a.slider(
+                "Participação máxima do volume diário (%)", 1, 30, 10, step=1,
+                help="Fração do ADTV do papel que o fundo aceita representar num pregão, sem mover "
+                     "preço de forma excessiva — 10% é uma referência comum para nomes menos líquidos.",
+            ) / 100
+            days_to_build = col_b.slider(
+                "Dias para montar/desmontar a posição", 1, 20, 5, step=1,
+                help="Quantos pregões a mesa teria para executar a posição-alvo num papel sem estressar o book.",
+            )
+
+            capacity_per_name = capacity.estimate_capacity(
+                latest_weights, adtv_latest, max_participation_rate=participation_rate,
+                days_to_build_position=days_to_build,
+            )
+            product_cap = capacity.product_capacity(capacity_per_name)
+
+            if pd.isna(product_cap):
+                st.warning("Nenhum papel da carteira atual tem ADTV disponível na data de referência.")
+            else:
+                st.metric("Capacidade estimada do produto (AUM)", f"R$ {product_cap:,.0f}".replace(",", "."))
+                bottleneck = capacity_per_name.index[0]
+                st.caption(
+                    f"Gargalo: **{bottleneck}** (peso {latest_weights[bottleneck]:.1%}, o papel mais "
+                    f"ilíquido pesado relativo à sua posição-alvo) — capacidade do produto é o MÍNIMO "
+                    f"entre os papéis, não a soma."
+                )
+
+                st.subheader("Capacidade por papel (10 mais restritivos)")
+                st.dataframe(
+                    capacity_per_name.head(10).rename("capacidade (R$)").to_frame().style.format("{:,.0f}"),
+                    use_container_width=True,
+                )
+                st.caption(
+                    "capacidade_papel = ADTV × participação máxima × dias para montar / peso no índice. "
+                    "Ver src/capacity.py para a fórmula completa e as limitações declaradas."
+                )
 
     with tab_atribuicao:
         st.caption("Atribuição de contribuição vs. Ibovespa por janela entre rebalanceamentos (ver src/attribution.py).")
