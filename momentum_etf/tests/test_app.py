@@ -64,6 +64,20 @@ def test_changing_rebalance_frequency_reruns_without_exception():
     assert not at.exception
 
 
+def test_pca_tab_renders_with_universe_choice_radio():
+    at = _run_app()
+    radios = [r for r in at.radio if "Conjunto de ações" in r.label]
+    assert radios
+    assert set(radios[0].options) == {"Carteira atual", "Universo elegível (mesma data)"}
+
+
+def test_switching_pca_universe_choice_reruns_without_exception():
+    at = _run_app()
+    radios = [r for r in at.radio if "Conjunto de ações" in r.label]
+    radios[0].set_value("Universo elegível (mesma data)").run()
+    assert not at.exception
+
+
 def test_compare_frequencies_checkbox_renders_table():
     at = _run_app()
     checkboxes = [c for c in at.checkbox if "Comparar" in c.label]

@@ -89,6 +89,17 @@ frequências" roda mensal/trimestral/semestral lado a lado (mantendo os
 demais parâmetros fixos) atrás de um checkbox, porque isso triplica o
 tempo de cálculo.
 
+A aba **PCA** (`src/pca_analysis.py`) traz duas análises: (1) sobre a
+carteira/universo elegível — quantos componentes explicam 90% da
+variância (risco sistemático vs. diversificação de verdade, além do
+número de posições) e se a carga no primeiro componente (proxy de beta
+de mercado) está correlacionada com o score de momentum, para checar se
+o fator é distinto de só "comprar ações de maior beta"; (2) sobre os 9
+benchmarks do case + o retorno do próprio índice — responde direto "com
+que classes de ativos a posição compete, e quais complementa?", olhando
+em qual componente o índice carrega mais forte e quem mais compartilha
+essa carga.
+
 O `dashboard.html` estático gerado por `scripts/run_backtest.py`
 continua existindo como entregável separado — mais simples de anexar a
 um e-mail ou abrir sem instalar nada, mas sem interatividade.
@@ -115,6 +126,7 @@ src/
   attribution.py           atribuição de performance vs. Ibovespa
   sensitivity.py           sensibilidade a parâmetros / estabilidade temporal
   capacity.py              estimativa de capacidade do produto
+  pca_analysis.py          PCA sobre risco da carteira e sobre classes de ativos
   report.py                dashboard HTML autocontido
 scripts/
   build_market_data.py     parseia COTAHIST + FRE, gera ADTV/market cap/mapeamento
