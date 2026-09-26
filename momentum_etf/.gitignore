@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# dados reais do case (não versionar) e dados sintéticos de smoke test
+data/*.csv
+
+# saídas geradas pelo backtest
+output/*
+!output/.gitkeep
