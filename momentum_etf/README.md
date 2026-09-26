@@ -8,20 +8,33 @@ métricas de desempenho pedidas e análises complementares de robustez.
 ## Aviso importante sobre os dados
 
 Os três CSVs do case (`acoes_retornos.csv`, `ibov_composicao.csv`,
-`benchmarks_diarios.csv`) **não foram anexados a esta sessão** — este
-ambiente não tem acesso a eles nem à internet para buscar fontes
-alternativas de mercado. Por isso:
+`benchmarks_diarios.csv`) já foram colocados em `data/` (não versionados,
+ver `.gitignore`) e `scripts/run_backtest.py` roda contra eles de ponta a
+ponta.
 
-- Todo o código foi escrito contra o **schema descrito no briefing** e
-  está pronto para rodar assim que os arquivos reais forem colocados em
-  `data/`.
 - `scripts/make_sample_data.py` gera dados **sintéticos** (aleatórios, com
-  uma tendência injetada artificialmente) só para exercitar o pipeline de
-  ponta a ponta neste ambiente — os números do `output/dashboard.html`
-  gerado a partir deles **não têm nenhum significado econômico** e não
-  devem ser usados para avaliar a estratégia. Rode
-  `python scripts/run_backtest.py` novamente depois de colocar os CSVs
-  reais em `data/` para obter os resultados de verdade.
+  uma tendência injetada artificialmente) só para exercitar o pipeline em
+  um ambiente sem os CSVs reais — os números do `output/dashboard.html`
+  gerados a partir deles **não têm nenhum significado econômico**.
+- **Bug encontrado e corrigido ao rodar contra o dado real:**
+  `benchmarks_diarios.csv` traz **níveis acumulados** de índice/cotação
+  (ex.: CDI saindo de ~3.57 em 2008 e chegando a ~21.2 em 2026, Ibovespa em
+  pontos, Bitcoin em preço BRL) — não a taxa diária já calculada que o nome
+  da coluna sugere. `src/data_loader.load_benchmarks` agora converte cada
+  coluna para retorno diário via `pct_change()` nesse único ponto de
+  carga; sem essa conversão o retorno do caixa (CDI) somava o *nível* do
+  índice todo dia e a série de retorno do backtest explodia (overflow) em
+  poucos anos de simulação.
+- **Resultado com o dado real ainda pede checagem antes de ser reportado
+  como conclusão:** com os parâmetros default, o backtest 2010–2026 sai em
+  ~255%/ano e Sharpe ~8.7 (ver `output/summary_metrics.csv`) — número alto
+  o suficiente para ser suspeito. O universo do CSV fornecido tem só ~120
+  tickers (bem menor que o Ibovespa completo) e o número de posições
+  elegíveis cai para poucos nomes nos primeiros anos da amostra, o que
+  concentra o índice em poucas apostas de alta convicção nesse trecho.
+  Antes de usar esse número: rodar `scripts/run_train_test_split.py` e
+  olhar `sensitivity_lookback.csv` / `sensitivity_cost.csv` para checar se
+  o resultado é robusto ou concentrado em poucos nomes/períodos.
 - Nenhuma fonte externa foi incorporada à análise (não usei nenhum dado
   complementar de B3, CVM, ou provedores de mercado) — é uma limitação
   desta entrega, não uma escolha metodológica, e está listada abaixo em

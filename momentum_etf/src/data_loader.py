@@ -60,11 +60,22 @@ def load_ibov_composition(path: str | Path) -> pd.DataFrame:
 
 
 def load_benchmarks(path: str | Path) -> pd.DataFrame:
-    """Lê benchmarks_diarios.csv (já wide) e padroniza nomes de coluna."""
+    """Lê benchmarks_diarios.csv e devolve retornos diários (wide, date x benchmark).
+
+    O CSV real do case traz **níveis de índice/cotação acumulados** (ex.: CDI
+    saindo de ~3.57 em 2008 e chegando a ~21.2 em 2026, Ibovespa em pontos,
+    Bitcoin em preço BRL) — não uma taxa diária já calculada, apesar do nome
+    da coluna sugerir isso. Todo o resto do pipeline (custo de oportunidade do
+    caixa em CDI, tracking error, beta, atribuição, gráfico de retorno
+    acumulado) espera retorno diário, então a conversão via `pct_change()`
+    acontece aqui, no único ponto de carga do arquivo — sem ela, o motor de
+    backtest soma o *nível* do CDI ao retorno do caixa todo dia e a série
+    explode (overflow) em poucos anos de simulação.
+    """
     df = pd.read_csv(path, parse_dates=["date"])
     df = df.set_index("date").sort_index()
     df.columns = [_normalize_colname(c) for c in df.columns]
-    return df
+    return df.pct_change()
 
 
 def _normalize_colname(name: str) -> str:
