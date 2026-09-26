@@ -19,6 +19,7 @@ from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 
 from src import metrics
@@ -58,9 +59,31 @@ def _fig_to_base64(fig) -> str:
     return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
+def _sanitize_for_plot(series: pd.Series, label: str) -> pd.Series:
+    """Vira NaN qualquer +-inf antes de plotar.
+
+    Um `inf` isolado (ex.: divisão por desvio-padrão zero numa janela
+    móvel, ou um dado de entrada que escapou da limpeza em
+    `data_loader.clean_returns`) faz o eixo do matplotlib tentar calcular
+    `log10(inf)` e quebrar a geração do dashboard inteiro — sintoma visto
+    em produção antes desta blindagem. Isso é uma rede de segurança, não
+    substitui investigar a causa: se `n` for maior que zero, o aviso
+    abaixo aparece no console para o problema ser rastreado na fonte.
+    """
+    clean = series.astype(float).replace([np.inf, -np.inf], np.nan)
+    n_removed = int(np.isinf(series.astype(float)).sum())
+    if n_removed:
+        print(f"  aviso: {n_removed} valor(es) não-finito(s) removido(s) do gráfico '{label}' "
+              f"— investigue a fonte de dado correspondente.")
+    return clean
+
+
 def _cumulative_returns_chart(port_returns: pd.Series, bench_returns: pd.Series) -> str:
-    port_curve = metrics.cumulative_curve(port_returns)
-    bench_curve = metrics.cumulative_curve(bench_returns.reindex(port_returns.index).fillna(0.0))
+    port_curve = _sanitize_for_plot(metrics.cumulative_curve(port_returns), "retorno acumulado (índice)")
+    bench_curve = _sanitize_for_plot(
+        metrics.cumulative_curve(bench_returns.reindex(port_returns.index).fillna(0.0)),
+        "retorno acumulado (Ibovespa)",
+    )
 
     fig, ax = plt.subplots(figsize=(9, 4.2))
     ax.plot(port_curve.index, port_curve.values, color=COLOR_INDEX, linewidth=2, label="Índice Momentum")
@@ -71,7 +94,7 @@ def _cumulative_returns_chart(port_returns: pd.Series, bench_returns: pd.Series)
 
 
 def _drawdown_chart(port_returns: pd.Series) -> str:
-    dd = metrics.drawdown_series(port_returns)
+    dd = _sanitize_for_plot(metrics.drawdown_series(port_returns), "drawdown")
     fig, ax = plt.subplots(figsize=(9, 3))
     ax.fill_between(dd.index, dd.values * 100, 0, color=COLOR_DRAWDOWN, alpha=0.35)
     ax.plot(dd.index, dd.values * 100, color=COLOR_DRAWDOWN, linewidth=1.2)
@@ -98,6 +121,7 @@ def _rolling_sharpe_chart(port_returns: pd.Series, risk_free: pd.Series, window:
     rolling_sharpe = (
         excess.rolling(window).mean() / excess.rolling(window).std(ddof=1)
     ) * (252 ** 0.5)
+    rolling_sharpe = _sanitize_for_plot(rolling_sharpe, "Sharpe móvel")
 
     fig, ax = plt.subplots(figsize=(9, 3))
     ax.plot(rolling_sharpe.index, rolling_sharpe.values, color=COLOR_INDEX, linewidth=1.6)

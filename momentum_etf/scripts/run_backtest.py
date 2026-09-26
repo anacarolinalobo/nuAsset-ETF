@@ -78,10 +78,23 @@ def main() -> None:
         returns_wide, config.max_abs_daily_return
     )
     if not flags_summary.empty:
-        print("Alertas de qualidade de dado (removidos do backtest, ver 'Aviso' no README):")
+        print("Alertas de qualidade de dado em acoes_retornos.csv (removidos do backtest):")
         print(flags_summary.to_string(index=False))
         flags.to_csv(OUTPUT_DIR / "data_quality_flags.csv", index=False)
         returns_wide = data_loader.clean_returns(returns_wide, flags)
+
+    # Mesma checagem sobre os benchmarks (CDI, Ibovespa, etc.) — um dado
+    # ruim ali não é pego pela limpeza acima (que só olha as ações) e ainda
+    # assim contamina beta, tracking error e o gráfico de retorno
+    # acumulado via cumprod, que é justamente o que travou aqui antes.
+    bench_flags, bench_flags_summary = data_loader.flag_suspicious_returns(
+        benchmarks, config.max_abs_daily_return
+    )
+    if not bench_flags_summary.empty:
+        print("Alertas de qualidade de dado em benchmarks_diarios.csv (removidos):")
+        print(bench_flags_summary.to_string(index=False))
+        bench_flags.to_csv(OUTPUT_DIR / "data_quality_flags_benchmarks.csv", index=False)
+        benchmarks = data_loader.clean_returns(benchmarks, bench_flags)
 
     cdi_daily = benchmarks[config.risk_free_column]
     bench_returns = benchmarks[config.benchmark_column]
