@@ -73,9 +73,10 @@ def main() -> None:
         returns_wide, config.max_abs_daily_return
     )
     if not flags_summary.empty:
-        print("Alertas de qualidade de dado:")
+        print("Alertas de qualidade de dado (removidos do backtest, ver 'Aviso' no README):")
         print(flags_summary.to_string(index=False))
         flags.to_csv(OUTPUT_DIR / "data_quality_flags.csv", index=False)
+        returns_wide = data_loader.clean_returns(returns_wide, flags)
 
     cdi_daily = benchmarks[config.risk_free_column]
     bench_returns = benchmarks[config.benchmark_column]

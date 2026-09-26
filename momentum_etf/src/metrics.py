@@ -22,6 +22,20 @@ import pandas as pd
 TRADING_DAYS_PER_YEAR = 252
 
 
+def _month_end_freq() -> str:
+    """Alias de fim de mês compatível com a versão de pandas instalada.
+
+    pandas >= 2.2 renomeou "M" (fim de mês) para "ME" e passou a rejeitar
+    "M" com erro (não só aviso) em algumas versões; pandas < 2.2 não
+    reconhece "ME" — usar o literal errado quebra `resample()` dependendo
+    de qual pandas o ambiente tem instalado (ex.: Anaconda costuma trazer
+    uma versão mais antiga). Detectar em runtime evita fixar um
+    requirements.txt estrito só por causa deste alias.
+    """
+    major, minor = (int(x) for x in pd.__version__.split(".")[:2])
+    return "ME" if (major, minor) >= (2, 2) else "M"
+
+
 def total_return(returns: pd.Series) -> float:
     return (1 + returns.fillna(0)).prod() - 1
 
@@ -109,7 +123,8 @@ def active_share(
     return 0.5 * (p - b).abs().sum()
 
 
-def hit_rate_vs_benchmark(returns: pd.Series, benchmark_returns: pd.Series, freq: str = "ME") -> float:
+def hit_rate_vs_benchmark(returns: pd.Series, benchmark_returns: pd.Series, freq: str | None = None) -> float:
+    freq = freq or _month_end_freq()
     port_m = (1 + returns).resample(freq).prod() - 1
     bench_m = (1 + benchmark_returns.reindex(returns.index).fillna(0.0)).resample(freq).prod() - 1
     aligned = pd.concat([port_m, bench_m], axis=1).dropna()
