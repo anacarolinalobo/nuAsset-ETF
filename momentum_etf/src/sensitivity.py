@@ -46,11 +46,13 @@ def parameter_grid_sensitivity(
     base_config: MomentumConfig,
     param_name: str,
     values: list,
+    adtv_wide: pd.DataFrame | None = None,
+    market_cap_wide: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     rows = []
     for value in values:
         cfg = replace(base_config, **{param_name: value})
-        result = run_backtest(returns_wide, cdi_daily, cfg)
+        result = run_backtest(returns_wide, cdi_daily, cfg, adtv_wide=adtv_wide, market_cap_wide=market_cap_wide)
         rows.append(
             {
                 param_name: value,

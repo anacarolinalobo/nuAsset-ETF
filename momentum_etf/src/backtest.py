@@ -50,6 +50,8 @@ def run_backtest(
     returns_wide: pd.DataFrame,
     cdi_daily: pd.Series,
     config: MomentumConfig,
+    adtv_wide: pd.DataFrame | None = None,
+    market_cap_wide: pd.DataFrame | None = None,
 ) -> BacktestResult:
     trading_days = returns_wide.index[
         (returns_wide.index >= pd.Timestamp(config.backtest_start))
@@ -98,7 +100,9 @@ def run_backtest(
 
         if date in effective_dates:
             calc_date = effective_dates[date]
-            eligible = eligible_universe(returns_wide, calc_date, config)
+            eligible = eligible_universe(
+                returns_wide, calc_date, config, adtv_wide=adtv_wide, market_cap_wide=market_cap_wide
+            )
             signal = compute_signal_on_date(returns_wide, calc_date, eligible, config)
 
             from src.weighting import compute_weights  # local import avoids cycle

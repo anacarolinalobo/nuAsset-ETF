@@ -30,15 +30,35 @@ class MomentumConfig:
     # Histórico mínimo de retornos antes da data de rebalanceamento, para
     # que o sinal de 12 meses já esteja plenamente formado.
     min_history_days: int = 252 + 21
-    # Proxy de liquidez: fração mínima de pregões com retorno não-nulo e
-    # não-ausente na janela de observação. Como a base não traz volume,
-    # usamos a presença de negociação (retorno registrado) como proxy.
+    # Proxy de liquidez de FALLBACK: fração mínima de pregões com retorno
+    # não-nulo na janela de observação. Usado quando ADTV real (COTAHIST)
+    # não está disponível para o ticker/data — ver `use_external_liquidity`
+    # abaixo e o módulo `src/universe.py`.
     liquidity_window_days: int = 126
     min_active_ratio: float = 0.90
     # Descarta retornos diários absurdos antes de qualquer cálculo (ver
     # src/data_loader.py::flag_suspicious_returns). Um |retorno| acima disso
     # é tratado como possível erro de cotação, não como sinal real.
     max_abs_daily_return: float = 1.00
+
+    # --- Filtro de liquidez e tamanho (aplicado ANTES do ranking de momentum) ---
+    # Quando ADTV (COTAHIST) e/ou valor de mercado (FRE) estão disponíveis
+    # (ver src/cotahist.py, src/market_cap.py), o universo elegível passa
+    # primeiro por este filtro de liquidez/tamanho, e só o que sobra entra
+    # no cálculo e ranking do sinal de momentum — dois estágios distintos,
+    # não um único corte combinado, para que a decisão de "é negociável"
+    # não dependa de ter tido bom ou mau momentum recente.
+    #
+    # Cortes por PERCENTIL da seção transversal do dia (e não valor
+    # absoluto em R$) por padrão: um piso nominal fixo perderia sentido ao
+    # longo de 2010-2026 por causa de inflação/crescimento do mercado; um
+    # corte relativo se mantém comparável ano a ano. Um piso absoluto
+    # opcional pode ser somado por cima (None = desativado).
+    liquidity_lookback_days: int = 63  # ~3 meses de pregão, para a ADTV móvel
+    adtv_min_percentile: float = 0.30      # exclui o terço menos líquido
+    market_cap_min_percentile: float = 0.20  # exclui o quinto menor em valor de mercado
+    min_adtv_reais: float | None = None
+    min_market_cap_reais: float | None = None
 
     # --- Seleção (com banda de turnover / buffer rule) ---
     # Percentil de corte para ENTRAR no índice (papel novo): top 30% do

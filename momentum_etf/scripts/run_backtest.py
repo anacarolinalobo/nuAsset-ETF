@@ -31,7 +31,32 @@ from src.config import DEFAULT_CONFIG
 from src.rebalance import generate_rebalance_dates
 
 DATA_DIR = ROOT / "data"
+DERIVED_DIR = DATA_DIR / "derived"
 OUTPUT_DIR = ROOT / "output"
+
+
+def _load_derived_liquidity_data():
+    """Carrega ADTV e valor de mercado gerados por `build_market_data.py`.
+
+    Retorna (None, None) se ainda não foram gerados — nesse caso o
+    backtest cai automaticamente no proxy de liquidez baseado em presença
+    de retorno (ver `src/universe.py`), sem quebrar.
+    """
+    adtv_path = DERIVED_DIR / "adtv.csv"
+    mcap_path = DERIVED_DIR / "market_cap.csv"
+
+    adtv_wide = pd.read_csv(adtv_path, index_col=0, parse_dates=True) if adtv_path.exists() else None
+    market_cap_wide = pd.read_csv(mcap_path, index_col=0, parse_dates=True) if mcap_path.exists() else None
+
+    if adtv_wide is None and market_cap_wide is None:
+        print("Sem dados derivados de liquidez/market cap (rode scripts/build_market_data.py "
+              "para usá-los). Caindo no proxy de liquidez baseado em presença de retorno.")
+    else:
+        print(f"Usando dados externos de liquidez/tamanho: "
+              f"ADTV={'sim' if adtv_wide is not None else 'não'}, "
+              f"market cap={'sim' if market_cap_wide is not None else 'não'}")
+
+    return adtv_wide, market_cap_wide
 
 
 def main() -> None:
@@ -42,6 +67,7 @@ def main() -> None:
     returns_wide = data_loader.load_returns(DATA_DIR / "acoes_retornos.csv")
     ibov_weights = data_loader.load_ibov_composition(DATA_DIR / "ibov_composicao.csv")
     benchmarks = data_loader.load_benchmarks(DATA_DIR / "benchmarks_diarios.csv")
+    adtv_wide, market_cap_wide = _load_derived_liquidity_data()
 
     flags, flags_summary = data_loader.flag_suspicious_returns(
         returns_wide, config.max_abs_daily_return
@@ -55,7 +81,7 @@ def main() -> None:
     bench_returns = benchmarks[config.benchmark_column]
 
     print("Rodando backtest...")
-    result = run_backtest(returns_wide, cdi_daily, config)
+    result = run_backtest(returns_wide, cdi_daily, config, adtv_wide=adtv_wide, market_cap_wide=market_cap_wide)
 
     rebalance_dates = generate_rebalance_dates(returns_wide.index, config)
     rebalances_per_year = 252 / (len(returns_wide) / max(len(rebalance_dates), 1))
@@ -92,12 +118,14 @@ def main() -> None:
 
     print("Rodando análise de sensibilidade (pode levar alguns minutos)...")
     sens_lookback = sensitivity.parameter_grid_sensitivity(
-        returns_wide, cdi_daily, config, "lookback_days", [126, 189, 252, 315]
+        returns_wide, cdi_daily, config, "lookback_days", [126, 189, 252, 315],
+        adtv_wide=adtv_wide, market_cap_wide=market_cap_wide,
     )
     sens_lookback.to_csv(OUTPUT_DIR / "sensitivity_lookback.csv", index=False)
 
     sens_cost = sensitivity.parameter_grid_sensitivity(
-        returns_wide, cdi_daily, config, "transaction_cost_bps", [10, 25, 40, 60]
+        returns_wide, cdi_daily, config, "transaction_cost_bps", [10, 25, 40, 60],
+        adtv_wide=adtv_wide, market_cap_wide=market_cap_wide,
     )
     sens_cost.to_csv(OUTPUT_DIR / "sensitivity_cost.csv", index=False)
 
