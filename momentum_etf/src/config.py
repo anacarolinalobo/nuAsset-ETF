@@ -40,6 +40,24 @@ class MomentumConfig:
     # é tratado como possível erro de cotação, não como sinal real.
     max_abs_daily_return: float = 1.00
 
+    # --- Liquidez, volume e market cap (B3 COTAHIST + CVM) ---
+    # Só usados quando `liquidez_mercado.csv` é fornecido (ver
+    # src/market_data.py); sem esse arquivo o universo cai de volta no
+    # proxy de presença de retorno acima.
+    # Janela do ADTV (mediana do volume financeiro diário): ~3 meses, o
+    # padrão de índices como MSCI/S&P para medir liquidez corrente.
+    adtv_window_days: int = 63
+    # Liquidez mínima para entrar no universo: R$ 5 mi/dia de mediana.
+    # Abaixo disso, montar/desmontar uma posição de um produto de porte
+    # institucional leva dias demais e o custo de impacto domina o prêmio.
+    min_adtv_brl: float = 5_000_000.0
+    # Tamanho mínimo: R$ 500 mi de market cap. Corta micro caps, onde o
+    # sinal de momentum é mais ruidoso e o preço mais manipulável.
+    min_market_cap_brl: float = 500_000_000.0
+    # Papel sem market cap na base (cobertura CVM x B3 incompleta) passa
+    # pelo filtro de tamanho se False; é excluído se True.
+    require_market_cap: bool = False
+
     # --- Seleção (com banda de turnover / buffer rule) ---
     # Percentil de corte para ENTRAR no índice (papel novo): top 30% do
     # universo elegível por score de momentum.
@@ -55,6 +73,18 @@ class MomentumConfig:
     # zero, com teto por ativo para limitar concentração em nomes de sinal
     # muito extremo (geralmente os mais ilíquidos).
     weight_cap: float = 0.08
+    # Esquema de ponderação:
+    #   "score"           : peso ∝ score (padrão original)
+    #   "score_sqrt_mcap" : peso ∝ score x sqrt(market cap) — inclina para
+    #                       nomes maiores sem virar cap-weight
+    weighting_scheme: str = "score"
+    # Teto de peso por liquidez: se `target_aum_brl` for definido, nenhum
+    # papel pode ter peso maior que o que se monta em
+    # `days_to_build_position` pregões negociando no máximo
+    # `max_adtv_participation` do ADTV. O que não couber fica em caixa (CDI).
+    target_aum_brl: float | None = None
+    max_adtv_participation: float = 0.10
+    days_to_build_position: int = 5
 
     # --- Rebalanceamento ---
     rebalance_freq: str = "Q"  # fim de trimestre

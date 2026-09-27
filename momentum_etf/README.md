@@ -48,7 +48,9 @@ pytest -q
 
 Saídas em `output/`: `dashboard.html` (relatório visual), `summary_metrics.csv`,
 `daily_returns.csv`, `turnover_history.csv`, `attribution.csv`,
-`sensitivity_lookback.csv`, `sensitivity_cost.csv`. Saídas de
+`sensitivity_lookback.csv`, `sensitivity_cost.csv` e, com
+`data/liquidez_mercado.csv`, `liquidez_carteira.csv`,
+`capacidade_ultima_carteira.csv`, `cobertura_liquidez.csv`. Saídas de
 `scripts/run_train_test_split.py` em `output/train_test_split/`:
 `grid_treino_teste.csv`, `resumo.csv`.
 
@@ -58,6 +60,7 @@ Saídas em `output/`: `dashboard.html` (relatório visual), `summary_metrics.csv
 src/
   config.py            parâmetros da metodologia, centralizados
   data_loader.py        carga e limpeza dos 3 CSVs; checagem de dado suspeito
+  market_data.py        volume (B3) e market cap (CVM): ADTV, filtros, sem look-ahead
   universe.py            universo elegível (entrada/saída, sem look-ahead)
   signal.py               sinal de momentum (12-1, ajustado a risco, z-score)
   selection.py            seleção com banda de turnover (buffer rule)
@@ -99,6 +102,20 @@ apenas dados até aquela data**:
    `liquidity_window_days` (126) pregões — se não, presume-se deslistada.
 3. Passa em um proxy de liquidez: fração de pregões com retorno observado
    na mesma janela >= `min_active_ratio` (90%).
+
+**Com dados de liquidez, volume e market cap** (`data/liquidez_mercado.csv`,
+gerado pela última célula de `caseNuAsset.ipynb` a partir do COTAHIST da B3
+e do capital social da CVM — ver `src/market_data.py`), o critério 3 passa a
+usar dado real de negociação em vez do proxy:
+
+3a. Fração de pregões com volume > 0 em `liquidity_window_days` >= `min_active_ratio`.
+3b. ADTV (mediana do volume financeiro diário em `adtv_window_days` = 63
+    pregões) >= `min_adtv_brl` (R$ 5 mi).
+4.  Market cap mais recente conhecido até a data >= `min_market_cap_brl`
+    (R$ 500 mi). Papel sem market cap na base passa por padrão
+    (`require_market_cap=False`), porque a cobertura CVM x B3 ainda é parcial.
+
+Sem esse arquivo o pipeline roda exatamente como antes (proxy).
 
 A ação sai do universo automaticamente quando seu histórico de retorno
 acaba (sem regra explícita de remoção — a ausência de dado já resolve
@@ -158,6 +175,14 @@ score negativo dentro da carteira — o que só acontece perto do corte de
 `hold_percentile` — recebem peso zero e são efetivamente removidos no
 próximo passo), com **teto de 8% por ativo** (`weight_cap`), redistribuído
 proporcionalmente entre os demais.
+
+**Extensões com market cap e volume** (desligadas por padrão, em
+`MomentumConfig`):
+- `weighting_scheme="score_sqrt_mcap"`: peso ∝ score × √market cap —
+  inclina para nomes maiores sem virar cap-weight.
+- `target_aum_brl`: teto de peso por papel derivado do ADTV
+  (`ADTV × max_adtv_participation × days_to_build_position / AUM`). O que
+  não couber em nenhum papel fica em caixa (CDI).
 
 **Alternativas descartadas:**
 - *Peso igual*: mais simples e menos concentrado, mas dilui o tilt de
@@ -261,12 +286,11 @@ share e atribuição de performance (`src/attribution.py`).
 ## 4. Capacidade do produto
 
 `src/capacity.py` implementa a fórmula de capacidade
-(`ADTV × participação_máxima × dias / peso`), mas **não é calculada** no
-`run_backtest.py` porque a base fornecida não traz volume financeiro
-negociado — só retorno. Buscar essa série (ex.: COTAHIST da B3) é o
-próximo passo natural antes de qualquer decisão de tamanho de produto; a
-função está pronta para receber um `pd.Series` de ADTV por ticker assim
-que disponível, sem mudar a interface.
+(`ADTV × participação_máxima × dias / peso`). Quando
+`data/liquidez_mercado.csv` existe, `run_backtest.py` calcula a capacidade
+em cada rebalance (`output/liquidez_carteira.csv`, junto com ADTV e market
+cap da carteira) e por papel na carteira atual
+(`output/capacidade_ultima_carteira.csv`), com o ADTV real do COTAHIST.
 
 ## O que ficou de fora (priorização declarada)
 
@@ -275,7 +299,10 @@ que disponível, sem mudar a interface.
 - Fontes externas complementares (ex.: volume B3, classificação setorial
   para uma atribuição Brinson completa): não buscadas por falta de acesso
   a dados de mercado neste ambiente — não por decisão metodológica.
-- Estimativa de capacidade real (depende de volume).
+- Market cap com cobertura parcial: o mapeamento ticker → CNPJ do
+  notebook só aceita matches de qualidade ALTO/MEDIO, units (final 11) não
+  têm market cap, e o capital social da CVM vai até 12/2025. Papéis sem
+  market cap não são filtrados por tamanho (ver `cobertura_liquidez.csv`).
 - Dashboard interativo (Streamlit): optou-se por HTML estático
   autocontido, mais simples de entregar e abrir sem servidor rodando;
   trade-off é a ausência de filtros interativos por período.

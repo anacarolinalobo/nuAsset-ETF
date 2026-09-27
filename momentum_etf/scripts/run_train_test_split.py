@@ -26,7 +26,7 @@ sys.path.insert(0, str(ROOT))
 
 import pandas as pd
 
-from src import data_loader, sensitivity
+from src import data_loader, market_data, sensitivity
 from src.config import DEFAULT_CONFIG
 
 DATA_DIR = ROOT / "data"
@@ -54,6 +54,11 @@ def main() -> None:
     returns_wide = data_loader.load_returns(DATA_DIR / "acoes_retornos.csv")
     benchmarks = data_loader.load_benchmarks(DATA_DIR / "benchmarks_diarios.csv")
     cdi_daily = benchmarks[DEFAULT_CONFIG.risk_free_column]
+    market_path = next(
+        (p for p in (DATA_DIR / "liquidez_mercado.parquet", DATA_DIR / "liquidez_mercado.csv") if p.exists()),
+        None,
+    )
+    mkt = market_data.load_market_data(market_path, returns_wide.index) if market_path else None
 
     print(f"Grade: {GRID} ({n_combos} combinações)")
     print(
@@ -61,7 +66,7 @@ def main() -> None:
         "(roda 1 backtest por combinação -- pode levar vários minutos)...\n"
     )
 
-    result = sensitivity.train_test_grid_search(returns_wide, cdi_daily, DEFAULT_CONFIG, GRID)
+    result = sensitivity.train_test_grid_search(returns_wide, cdi_daily, DEFAULT_CONFIG, GRID, mkt)
 
     train_start, train_end = result["train_period"]
     test_start, test_end = result["test_period"]
