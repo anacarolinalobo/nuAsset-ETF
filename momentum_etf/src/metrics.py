@@ -110,8 +110,11 @@ def active_share(
 
 
 def hit_rate_vs_benchmark(returns: pd.Series, benchmark_returns: pd.Series, freq: str = "ME") -> float:
-    port_m = (1 + returns).resample(freq).prod() - 1
-    bench_m = (1 + benchmark_returns.reindex(returns.index).fillna(0.0)).resample(freq).prod() - 1
+    # groupby por período em vez de resample("ME"): o alias "ME" só existe
+    # a partir do pandas 2.2 e o requirements aceita >=2.0.
+    periods = returns.index.to_period({"ME": "M", "QE": "Q", "YE": "Y"}.get(freq, freq))
+    port_m = (1 + returns).groupby(periods).prod() - 1
+    bench_m = (1 + benchmark_returns.reindex(returns.index).fillna(0.0)).groupby(periods).prod() - 1
     aligned = pd.concat([port_m, bench_m], axis=1).dropna()
     if aligned.empty:
         return np.nan

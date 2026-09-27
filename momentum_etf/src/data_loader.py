@@ -60,10 +60,17 @@ def load_ibov_composition(path: str | Path) -> pd.DataFrame:
 
 
 def load_benchmarks(path: str | Path) -> pd.DataFrame:
-    """Lê benchmarks_diarios.csv (já wide) e padroniza nomes de coluna."""
+    """Lê benchmarks_diarios.csv (já wide), padroniza nomes e devolve retornos diários."""
     df = pd.read_csv(path, parse_dates=["date"])
     df = df.set_index("date").sort_index()
     df.columns = [_normalize_colname(c) for c in df.columns]
+    # O CSV real traz NÍVEIS (CDI acumulado, Ibovespa em pontos), não
+    # retornos. Coluna com mediana |x| > 1 não pode ser retorno diário:
+    # converte para variação diária.
+    for col in df.columns:
+        values = df[col].dropna()
+        if not values.empty and values.abs().median() > 1:
+            df[col] = df[col].pct_change(fill_method=None)
     return df
 
 
