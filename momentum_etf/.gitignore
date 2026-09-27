@@ -4,6 +4,7 @@ __pycache__/
 
 # dados reais do case (não versionar) e dados sintéticos de smoke test
 data/*.csv
+data/*.parquet
 
 # saídas geradas pelo backtest
 output/*

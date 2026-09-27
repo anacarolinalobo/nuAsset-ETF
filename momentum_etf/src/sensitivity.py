@@ -37,6 +37,7 @@ import pandas as pd
 
 from src.backtest import run_backtest
 from src.config import MomentumConfig
+from src.market_data import MarketData
 from src.metrics import annualized_return, sharpe_ratio, annualized_vol, max_drawdown
 
 
@@ -46,11 +47,12 @@ def parameter_grid_sensitivity(
     base_config: MomentumConfig,
     param_name: str,
     values: list,
+    market_data: MarketData | None = None,
 ) -> pd.DataFrame:
     rows = []
     for value in values:
         cfg = replace(base_config, **{param_name: value})
-        result = run_backtest(returns_wide, cdi_daily, cfg)
+        result = run_backtest(returns_wide, cdi_daily, cfg, market_data)
         rows.append(
             {
                 param_name: value,
@@ -69,8 +71,9 @@ def expanding_window_stability(
     cdi_daily: pd.Series,
     config: MomentumConfig,
     n_splits: int = 4,
+    market_data: MarketData | None = None,
 ) -> pd.DataFrame:
-    result = run_backtest(returns_wide, cdi_daily, config)
+    result = run_backtest(returns_wide, cdi_daily, config, market_data)
     returns = result.returns_net
     chunk_size = len(returns) // n_splits
 
@@ -98,6 +101,7 @@ def train_test_grid_search(
     cdi_daily: pd.Series,
     base_config: MomentumConfig,
     grid: dict[str, list],
+    market_data: MarketData | None = None,
 ) -> dict[str, Any]:
     """Otimiza `grid` no treino (1ª metade da amostra) e valida no teste (2ª).
 
@@ -131,7 +135,7 @@ def train_test_grid_search(
     for combo in combos:
         overrides = dict(zip(keys, combo))
         cfg = replace(base_config, **overrides)
-        result = run_backtest(returns_wide, cdi_daily, cfg)
+        result = run_backtest(returns_wide, cdi_daily, cfg, market_data)
         results_by_combo[combo] = result.returns_net
         rows.append(
             {
@@ -150,7 +154,7 @@ def train_test_grid_search(
     best_row = grid_results.loc[best_idx]
     best_params = {k: best_row[k] for k in keys}
 
-    default_returns = run_backtest(returns_wide, cdi_daily, base_config).returns_net
+    default_returns = run_backtest(returns_wide, cdi_daily, base_config, market_data).returns_net
     sharpe_teste_default = sharpe_ratio(default_returns.loc[test_start:test_end], cdi_daily)
 
     sharpe_treino_otimizado = float(best_row["sharpe_treino"])

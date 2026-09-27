@@ -4,7 +4,8 @@ IMPORTANTE: isto NÃO é dado real de mercado. Serve apenas para exercitar o
 pipeline (data_loader -> universe -> signal -> selection -> weighting ->
 backtest -> metrics -> report) de ponta a ponta neste ambiente, já que os
 CSVs reais do case (acoes_retornos.csv, ibov_composicao.csv,
-benchmarks_diarios.csv) não foram anexados a esta sessão.
+benchmarks_diarios.csv) não foram anexados a esta sessão. Também gera um
+liquidez_mercado.csv sintético (volume + market cap).
 
 Ao rodar o case de verdade, coloque os 3 arquivos reais em `data/` e pule
 este script — `scripts/run_backtest.py` os lê diretamente.
@@ -100,6 +101,31 @@ def make_benchmarks(returns_long: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def make_market_data(returns_long: pd.DataFrame) -> pd.DataFrame:
+    """Volume financeiro diário e market cap mensal, no formato de liquidez_mercado.csv.
+
+    Cada ticker recebe um porte (market cap inicial) e um giro diário
+    aleatórios; o market cap evolui com o retorno acumulado e é reportado
+    só no último pregão de cada mês (como o capital social da CVM).
+    """
+    frames = []
+    for ticker, g in returns_long.groupby("ticker"):
+        g = g.sort_values("date")
+        initial_mcap = np.exp(RNG.uniform(np.log(1e8), np.log(1e11)))
+        turnover = RNG.uniform(0.0005, 0.004)
+        mcap = initial_mcap * (1 + g["retorno"].to_numpy()).cumprod()
+        volume = mcap * turnover * RNG.lognormal(0.0, 0.5, len(g))
+        volume[RNG.random(len(g)) < 0.03] = 0.0  # dias sem negócio
+
+        df_t = pd.DataFrame(
+            {"date": g["date"].to_numpy(), "ticker": ticker, "volume_financeiro": volume, "market_cap": mcap}
+        )
+        month_end = df_t["date"].dt.to_period("M").ne(df_t["date"].shift(-1).dt.to_period("M"))
+        df_t.loc[~month_end, "market_cap"] = np.nan
+        frames.append(df_t)
+    return pd.concat(frames, ignore_index=True)
+
+
 def main() -> None:
     DATA_DIR.mkdir(exist_ok=True)
 
@@ -111,6 +137,9 @@ def main() -> None:
 
     benchmarks = make_benchmarks(returns_long)
     benchmarks.to_csv(DATA_DIR / "benchmarks_diarios.csv", index=False)
+
+    market = make_market_data(returns_long)
+    market.to_csv(DATA_DIR / "liquidez_mercado.csv", index=False)
 
     print(f"Dados sintéticos gravados em {DATA_DIR}")
 
